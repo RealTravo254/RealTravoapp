@@ -27,7 +27,7 @@ const Seg = ({ options, value, onChange }) => (
 
 // Step 1: items, date, time, guests, nights, and pickup / drop-off / return. Nothing is saved yet.
 export default function BookingScreen({ route, navigation }) {
-  const { listing, prices, offers, pickup: pre } = route.params; const { profile } = useAuth();
+  const { listing, prices, offers, pickup: pre } = route.params; const { profile, formatMoney } = useAuth();
   const [sel, setSel] = useState({}); const [guests, setGuests] = useState(1);
   const [days, setDays] = useState(() => (listing.schedule_type === 'tour' && listing.starts_on && listing.ends_on ? Math.max(1, Math.round((new Date(listing.ends_on) - new Date(listing.starts_on)) / 86400000) + 1) : 1));
   const fixedStart = (listing.category === 'event' || listing.schedule_type === 'one_time') ? (listing.event_date ? new Date(listing.event_date) : null) : (listing.schedule_type === 'tour' && listing.starts_on ? new Date(listing.starts_on + 'T12:00:00') : null);
@@ -121,7 +121,7 @@ export default function BookingScreen({ route, navigation }) {
       </View>
       {prices.map((p) => (
         <Card key={p.id}><View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <View style={{ flex: 1 }}><Text style={{ fontWeight: '600' }}>{p.label}</Text><Muted>{p.audience} · {p.unit.replace('_', ' ')} · {Number(p.price) === 0 ? 'Free' : `$${p.price}`}{p.is_optional ? ' · optional' : ''}</Muted></View>
+          <View style={{ flex: 1 }}><Text style={{ fontWeight: '600' }}>{p.label}</Text><Muted>{p.audience} · {p.unit.replace('_', ' ')} · {Number(p.price) === 0 ? 'Free' : formatMoney(p.price)}{p.is_optional ? ' · optional' : ''}</Muted></View>
           <Btn title="−" kind="ghost" onPress={() => bump(p.id, -1)} /><Text style={{ width: 24, textAlign: 'center', color: C.primary, fontWeight: '800' }}>{sel[p.id] || 0}</Text><Btn title="+" kind="ghost" onPress={() => bump(p.id, 1)} />
         </View></Card>))}
 
@@ -139,8 +139,8 @@ export default function BookingScreen({ route, navigation }) {
 
         <Label>Note to host</Label><Input multiline value={note} onChangeText={setNote} />
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ flex: 1 }}>{tr('urgent')}</Text><Switch value={urgent} onValueChange={setUrgent} trackColor={{ true: C.primary }} /></View>
-        {bal > 0 && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ flex: 1 }}>Use account balance (${bal.toFixed(2)})</Text><Switch value={useBalance} onValueChange={setUseBalance} trackColor={{ true: C.primary }} /></View>}
-        {offer && <Text style={{ color: '#D2691E', marginTop: 8 }}>🔥 {offer.title} −{offer.percent_off}% (−${calc.discount.toFixed(2)})</Text>}
+        {bal > 0 && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ flex: 1 }}>Use account balance ({formatMoney(bal)})</Text><Switch value={useBalance} onValueChange={setUseBalance} trackColor={{ true: C.primary }} /></View>}
+        {offer && <Text style={{ color: '#D2691E', marginTop: 8 }}>🔥 {offer.title} −{offer.percent_off}% (−{formatMoney(calc.discount)})</Text>}
 
         {/* LAST SECTION: pickup and return (unticked and closed until the guest ticks it) */}
         {needsMeeting && (
@@ -158,7 +158,7 @@ export default function BookingScreen({ route, navigation }) {
                 </TouchableOpacity>
               )}
             </View>
-            {transfer && !open && <Muted>{pickupLoc ? `📍 ${pickupLoc.label}` : 'Tap ▼ to choose pickup place, time and vehicle.'}{tprice > 0 ? ` · $${tprice.toFixed(2)}` : ''}</Muted>}
+            {transfer && !open && <Muted>{pickupLoc ? `📍 ${pickupLoc.label}` : 'Tap ▼ to choose pickup place, time and vehicle.'}{tprice > 0 ? ` · ${formatMoney(tprice)}` : ''}</Muted>}
             {transfer && open && <>
               <Seg value={tripType} onChange={setTripType} options={[['oneway', 'Pickup only'], ['return', 'Pickup and return']]} />
               <Label>Pickup place</Label>
@@ -178,8 +178,8 @@ export default function BookingScreen({ route, navigation }) {
               <Label>{needVehicle ? 'Vehicle' : 'Vehicle (optional)'}</Label>
               {vehicles.map((x) => { const fits = x.max_passengers >= guests; return (
                 <Card key={x.id} onPress={() => fits && setVid(vid === x.id && !needVehicle ? null : x.id)} style={{ marginHorizontal: 0, opacity: fits ? 1 : 0.4, borderWidth: 2, borderColor: vid === x.id ? C.primary : C.border }}>
-                  <Text>{x.name} · max {x.max_passengers}</Text><Muted>${x.price_per_km}/km + ${x.base_fee}</Muted></Card>); })}
-              <Text style={{ fontWeight: '700', color: C.primary }}>Transfer price{isReturn ? ' (both ways)' : ''}: ${tprice.toFixed(2)}{km != null ? ` (${km} km)` : ''}</Text>
+                  <Text>{x.name} · max {x.max_passengers}</Text><Muted>{formatMoney(x.price_per_km)}/km + {formatMoney(x.base_fee)}</Muted></Card>); })}
+              <Text style={{ fontWeight: '700', color: C.primary }}>Transfer price{isReturn ? ' (both ways)' : ''}: {formatMoney(tprice)}{km != null ? ` (${km} km)` : ''}</Text>
               <Muted>The host sees the pickup, drop-off and return in the booking, email and notification.</Muted>
             </>}
           </Card>
@@ -187,9 +187,9 @@ export default function BookingScreen({ route, navigation }) {
 
         {problems.map((p, i) => <Text key={i} style={{ color: C.danger, fontWeight: '700', marginTop: 4 }}>⚠️ {p}</Text>)}
         <View style={{ marginVertical: 10, padding: 12, borderRadius: 12, backgroundColor: C.primary }}>
-          <Text style={{ color: '#fff' }}>Booking: ${calc.total.toFixed(2)}</Text>
-          {transfer ? <Text style={{ color: '#fff' }}>Transfer: ${tprice.toFixed(2)}</Text> : null}
-          <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800', marginTop: 4 }}>{tr('total')}: ${grandTotal.toFixed(2)}</Text>
+          <Text style={{ color: '#fff' }}>Booking: {formatMoney(calc.total)}</Text>
+          {transfer ? <Text style={{ color: '#fff' }}>Transfer: {formatMoney(tprice)}</Text> : null}
+          <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800', marginTop: 4 }}>{tr('total')}: {formatMoney(grandTotal)}</Text>
         </View>
         <Muted>Next you can add stopovers, stays and activities, then pay now or pay later.</Muted>
         <Btn title="Continue" onPress={next} disabled={left === 0 || !!problem} />

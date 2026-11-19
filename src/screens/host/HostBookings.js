@@ -58,7 +58,7 @@ function Line({ icon, children }) {
 }
 
 export default function HostBookings({ navigation }) {
-  const { session } = useAuth();
+  const { session, formatMoney } = useAuth();
   const [rows, setRows] = useState([]);
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
@@ -170,7 +170,7 @@ export default function HostBookings({ navigation }) {
           </View>
           <View style={s.totalBox}>
             <Text style={s.totalLabel}>Total</Text>
-            <Text style={s.total}>${Number(b.total).toFixed(2)}</Text>
+            <Text style={s.total}>{formatMoney(b.total)}</Text>
           </View>
         </View>
 

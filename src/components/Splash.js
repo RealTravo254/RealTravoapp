@@ -4,7 +4,7 @@ import { View, Image, Text, Dimensions, StyleSheet } from 'react-native';
 // Opening screen: a BIG RealTravo logo with the theme line, shown at once (no animation).
 const LOGO = require('../../assets/logo.png');
 const WORDS = ['SEARCH', 'BOOK', 'TRAVEL', 'EXPERIENCE'];
-export default function Splash({ onDone }) {
+export default function Splash() {
   const a = Image.resolveAssetSource(LOGO); const w = Dimensions.get('window').width * 0.92;
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', zIndex: 999 }]}>

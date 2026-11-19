@@ -1,7 +1,10 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
+import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { i18n } from '../i18n';
 
+const KES_RATE_CACHE = 'settings:kes_per_usd';
 const Ctx = createContext(null);
 export const useAuth = () => useContext(Ctx);
 
@@ -17,15 +20,27 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let active = true;
-    supabase.from('app_settings').select('kes_per_usd').eq('id', 1).maybeSingle().then(({ data, error }) => {
-      if (error) {
-        console.warn('Could not load the KES exchange rate:', error.message);
-        return;
+    const refreshRate = async () => {
+      try {
+        const { data, error } = await supabase.from('app_settings').select('kes_per_usd').eq('id', 1).maybeSingle();
+        if (error) throw error;
+        const rate = Number(data?.kes_per_usd);
+        if (!Number.isFinite(rate) || rate <= 0) throw new Error('The admin exchange rate is missing or invalid.');
+        if (active) {
+          setKesPerUsd(rate);
+          await AsyncStorage.setItem(KES_RATE_CACHE, String(rate));
+        }
+      } catch (e) {
+        console.warn('Could not refresh the KES exchange rate:', e.message);
       }
-      const rate = Number(data?.kes_per_usd);
+    };
+    AsyncStorage.getItem(KES_RATE_CACHE).then((value) => {
+      const rate = Number(value);
       if (active && Number.isFinite(rate) && rate > 0) setKesPerUsd(rate);
-    });
-    return () => { active = false; };
+    }).catch((e) => console.warn('Could not read the saved KES exchange rate:', e.message));
+    refreshRate();
+    const appState = AppState.addEventListener('change', (state) => { if (state === 'active') refreshRate(); });
+    return () => { active = false; appState.remove(); };
   }, []);
 
   const loadLegal = useCallback(async (uid, spinner) => {

@@ -21,7 +21,7 @@ const GROUPS = {
 const GAP = 30; // minutes between add-ons
 
 export default function AddOns({ route, navigation }) {
-  const { session } = useAuth();
+  const { session, formatMoney } = useAuth();
   const { listing, draft, main } = route.params;          // draft = not saved yet, main = already saved booking
   const guests = draft?.guests || main.guests; const date = draft?.start || main.start_date; const endDate = draft?.end || main.end_date; const nights = draft?.days || main.nights || 1;
   const mainTime = draft?.time || (main?.start_time ? main.start_time.slice(0, 5) : '10:00');
@@ -124,7 +124,7 @@ export default function AddOns({ route, navigation }) {
         near.map((l) => { const c = chosen[l.id]; return (
           <Card key={l.id} onPress={() => toggle(l)} style={{ borderWidth: 2, borderColor: c ? C.primary : C.border }}>
             <Text style={{ fontWeight: '700' }}>{c ? '☑️ ' : '⬜ '}{l.title}</Text>
-            <Muted>{l.category} · {l.distance_km.toFixed(1)} km away · from ${l.from_price ?? '-'}{c ? ' · tap to remove' : ''}</Muted>
+            <Muted>{l.category} · {l.distance_km.toFixed(1)} km away · from {l.from_price != null ? formatMoney(l.from_price) : 'On request'}{c ? ' · tap to remove' : ''}</Muted>
             {c && <>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <DateField style={{ flex: 1, marginRight: 8 }} value={new Date(c.date + 'T12:00:00')} disabled={c.fixed} suffix={c.fixed ? ' (event date)' : ''}
@@ -132,17 +132,17 @@ export default function AddOns({ route, navigation }) {
                 {c.fixed ? <Text style={{ fontWeight: '700' }}>🕒 {c.time}</Text> : <TimeField value={c.time} onChange={(x) => setField(l.id, { time: x })} />}
               </View>
               {STAY.includes(l.category) && <Stepper label="Nights" value={c.nights} onChange={(n) => setField(l.id, { nights: n })} min={1} max={30} />}
-              <Muted>${lineTotal(c).toFixed(2)} for {guests} {guests === 1 ? 'guest' : 'guests'}</Muted>
+              <Muted>{formatMoney(lineTotal(c))} for {guests} {guests === 1 ? 'guest' : 'guests'}</Muted>
               {overlapsBase(blockOf(c), baseBlocks) && <Muted style={{ color: C.ok }}>ℹ️ This is during your main booking. That's allowed.</Muted>}
             </>}
           </Card>); })}
 
       <View style={{ margin: 12 }}>
         {problems.map((p, i) => <Text key={i} style={{ color: C.danger, fontWeight: '700', marginBottom: 4 }}>⚠️ {p}</Text>)}
-        {draft && <Text>Main booking: ${draft.total.toFixed(2)}</Text>}
-        {transferPrice > 0 && <Text>Transfer: ${transferPrice.toFixed(2)}</Text>}
-        <Text>Add-ons: ${extrasTotal.toFixed(2)}</Text>
-        <Text style={{ fontSize: 22, fontWeight: '800', marginVertical: 6 }}>Total: ${grand.toFixed(2)}</Text>
+        {draft && <Text>Main booking: {formatMoney(draft.total)}</Text>}
+        {transferPrice > 0 && <Text>Transfer: {formatMoney(transferPrice)}</Text>}
+        <Text>Add-ons: {formatMoney(extrasTotal)}</Text>
+        <Text style={{ fontSize: 22, fontWeight: '800', marginVertical: 6 }}>Total: {formatMoney(grand)}</Text>
         <Btn title="Pay now" onPress={() => save(true)} disabled={busy || problems.length > 0} />
         <Btn kind="ghost" title="Pay later (saved in My Trips)" onPress={() => save(false)} disabled={busy || problems.length > 0} />
         <Muted style={{ marginTop: 4 }}>If you leave this screen without choosing, nothing is saved.</Muted>

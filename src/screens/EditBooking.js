@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { ScrollView, View, Text, Alert, TouchableOpacity } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/AuthContext';
 import { Btn, Card, Input, Label, Muted, Stepper, Loader, Chip } from '../components/ui';
 import TimeField from '../components/TimeField';
 import DateField from '../components/DateField';
@@ -23,6 +24,7 @@ const GROUPS = {
 // Unpaid + pending bookings: the user can change the date and ADD pickup, items and add-ons. Nothing can be reduced.
 export default function EditBooking({ route, navigation }) {
   const { id } = route.params;
+  const { formatMoney } = useAuth();
   const [b, setB] = useState(undefined); const [l, setL] = useState(null); const [prices, setPrices] = useState([]); const [formItem, setFormItem] = useState(null);
   const [orig, setOrig] = useState({ guests: 1, days: 1, sel: {} }); const [kids, setKids] = useState([]);
   const [sel, setSel] = useState({}); const [guests, setGuests] = useState(1); const [days, setDays] = useState(1);
@@ -173,7 +175,7 @@ export default function EditBooking({ route, navigation }) {
 
       {!formItem && prices.map((p) => (
         <Card key={p.id}><View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <View style={{ flex: 1 }}><Text style={{ fontWeight: '600' }}>{p.label}</Text><Muted>{p.audience} · {p.unit.replace('_', ' ')} · {Number(p.price) === 0 ? 'Free' : `$${p.price}`}{orig.sel[p.id] ? ` · booked ${orig.sel[p.id]}` : ''}</Muted></View>
+          <View style={{ flex: 1 }}><Text style={{ fontWeight: '600' }}>{p.label}</Text><Muted>{p.audience} · {p.unit.replace('_', ' ')} · {Number(p.price) === 0 ? 'Free' : formatMoney(p.price)}{orig.sel[p.id] ? ` · booked ${orig.sel[p.id]}` : ''}</Muted></View>
           <Btn title="−" kind="ghost" onPress={() => bump(p.id, -1)} disabled={(sel[p.id] || 0) <= (orig.sel[p.id] || 0)} /><Text style={{ width: 24, textAlign: 'center' }}>{sel[p.id] || 0}</Text><Btn title="+" kind="ghost" onPress={() => bump(p.id, 1)} />
         </View></Card>))}
 
@@ -203,8 +205,8 @@ export default function EditBooking({ route, navigation }) {
               <Label>Vehicle</Label>
               {vehicles.map((x) => { const fits = x.max_passengers >= guests; return (
                 <Card key={x.id} onPress={() => fits && setVid(x.id)} style={{ marginHorizontal: 0, opacity: fits ? 1 : 0.4, borderWidth: 2, borderColor: vid === x.id ? C.primary : C.border }}>
-                  <Text style={{ fontWeight: '700' }}>{x.name} · max {x.max_passengers}</Text><Muted>{km != null ? `Total $${transferPrice(x, km).toFixed(2)}` : 'Choose pickup to see the price'}</Muted></Card>); })}
-              <Text style={{ fontWeight: '700', color: C.primary }}>Pickup total: ${tprice.toFixed(2)}</Text>
+                  <Text style={{ fontWeight: '700' }}>{x.name} · max {x.max_passengers}</Text><Muted>{km != null ? `Total ${formatMoney(transferPrice(x, km))}` : 'Choose pickup to see the price'}</Muted></Card>); })}
+              <Text style={{ fontWeight: '700', color: C.primary }}>Pickup total: {formatMoney(tprice)}</Text>
             </>}
           </Card>
         )}
@@ -218,7 +220,7 @@ export default function EditBooking({ route, navigation }) {
             near.filter((x) => !kids.some((k) => k.listing_id === x.id)).map((x) => { const c = chosen[x.id]; return (
               <Card key={x.id} onPress={() => toggle(x)} style={{ marginHorizontal: 0, borderWidth: 2, borderColor: c ? C.primary : C.border }}>
                 <Text style={{ fontWeight: '700' }}>{c ? '☑️ ' : '⬜ '}{x.title}</Text>
-                <Muted>{x.category} · {x.distance_km.toFixed(1)} km away · from ${x.from_price ?? '-'}{c ? ' · tap to remove' : ''}</Muted>
+                <Muted>{x.category} · {x.distance_km.toFixed(1)} km away · from {x.from_price != null ? formatMoney(x.from_price) : 'On request'}{c ? ' · tap to remove' : ''}</Muted>
                 {c && <>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <DateField style={{ flex: 1, marginRight: 8 }} value={new Date(c.date + 'T12:00:00')} disabled={c.fixed} suffix={c.fixed ? ' (event date)' : ''}
@@ -226,7 +228,7 @@ export default function EditBooking({ route, navigation }) {
                     {c.fixed ? <Text style={{ fontWeight: '700' }}>🕒 {c.time}</Text> : <TimeField value={c.time} onChange={(tm) => setField(x.id, { time: tm })} />}
                   </View>
                   {STAY.includes(x.category) && <Stepper label="Nights" value={c.nights} onChange={(n) => setField(x.id, { nights: n })} min={1} max={30} />}
-                  <Muted>${lineTotal(c).toFixed(2)} for {guests} {guests === 1 ? 'guest' : 'guests'}</Muted>
+                  <Muted>{formatMoney(lineTotal(c))} for {guests} {guests === 1 ? 'guest' : 'guests'}</Muted>
                 </>}
               </Card>); })}
         </>}
@@ -235,10 +237,10 @@ export default function EditBooking({ route, navigation }) {
         <Label>Note to host</Label><Input multiline value={note} onChangeText={setNote} />
 
         <View style={{ marginVertical: 10, padding: 12, borderRadius: 12, backgroundColor: C.primary }}>
-          <Text style={{ color: '#fff' }}>Booking: ${calc.total.toFixed(2)}</Text>
-          {tprice > 0 && <Text style={{ color: '#fff' }}>New pickup: ${tprice.toFixed(2)}</Text>}
-          {extras.map((c) => <Text key={c.l.id} style={{ color: '#fff' }}>{c.l.title}: ${lineTotal(c).toFixed(2)}</Text>)}
-          <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800', marginTop: 4 }}>This booking: ${grand.toFixed(2)}</Text>
+          <Text style={{ color: '#fff' }}>Booking: {formatMoney(calc.total)}</Text>
+          {tprice > 0 && <Text style={{ color: '#fff' }}>New pickup: {formatMoney(tprice)}</Text>}
+          {extras.map((c) => <Text key={c.l.id} style={{ color: '#fff' }}>{c.l.title}: {formatMoney(lineTotal(c))}</Text>)}
+          <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800', marginTop: 4 }}>This booking: {formatMoney(grand)}</Text>
         </View>
         <Btn title="Save and pay now" onPress={() => save(true)} disabled={busy || !!problem} />
         <Btn kind="ghost" title="Save changes (pay later)" onPress={() => save(false)} disabled={busy || !!problem} />

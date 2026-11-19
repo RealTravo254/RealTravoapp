@@ -9,7 +9,7 @@ import { C } from '../../lib/theme';
 
 // A booking form = a link for one listing at your price. Customers open it in the app and pay; you create forms with your plan.
 export default function BookingForms({ navigation }) {
-  const { session } = useAuth();
+  const { session, formatMoney } = useAuth();
   const [listings, setListings] = useState([]); const [forms, setForms] = useState([]); const [subs, setSubs] = useState([]); const [page, setPage] = useState(0);
   const [lid, setLid] = useState(null); const [title, setTitle] = useState(''); const [price, setPrice] = useState('');
   const load = useCallback(async () => {
@@ -24,7 +24,7 @@ export default function BookingForms({ navigation }) {
   const active = subs.filter((s) => (!s.ends_at || new Date(s.ends_at) > new Date()) && (s.forms_limit == null || s.forms_used < s.forms_limit));
   const left = active.some((s) => s.forms_limit == null) ? 'Unlimited' : String(active.reduce((a, s) => a + (s.forms_limit - s.forms_used), 0));
   const link = (f) => `travelapp://form/${f.slug}`;
-  const share = (f) => Share.share({ message: `Book "${f.title}" (${f.listings?.title}) on RealTravo for $${f.price} per person.\nOpen the booking form: ${link(f)}` }).catch(() => {});
+  const share = (f) => Share.share({ message: `Book "${f.title}" (${f.listings?.title}) on RealTravo for ${formatMoney(f.price)} per person.\nOpen the booking form: ${link(f)}` }).catch(() => {});
   const create = async () => {
     if (!lid || !title.trim() || !(Number(price) > 0)) return Alert.alert('Choose the listing, a title and a price per person');
     const { data, error } = await supabase.rpc('create_booking_form', { p_listing: lid, p_title: title.trim(), p_price: Number(price) });
@@ -45,7 +45,7 @@ export default function BookingForms({ navigation }) {
       </Card>
       {shown.map((f) => (
         <Card key={f.id}>
-          <Text style={{ fontWeight: '800' }}>{f.title}</Text><Muted>{f.listings?.title} · ${f.price} per person · {f.active ? 'active' : 'turned off'}</Muted>
+          <Text style={{ fontWeight: '800' }}>{f.title}</Text><Muted>{f.listings?.title} · {formatMoney(f.price)} per person · {f.active ? 'active' : 'turned off'}</Muted>
           <Text selectable style={{ color: C.primary, marginTop: 4 }}>{link(f)}</Text>
           <View style={{ flexDirection: 'row' }}>
             <Btn style={{ flex: 1, margin: 2 }} title="Share" onPress={() => share(f)} />

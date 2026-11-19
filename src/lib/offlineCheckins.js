@@ -43,7 +43,10 @@ export async function refreshCheckinCache(userId) {
     .order('id');
   if (error) throw error;
 
-  const bookings = (data || []).filter((booking) => CHECKIN_CATEGORIES.includes(booking.listings?.category));
+  const queue = await readJson(queueKey(userId), []);
+  const pendingTokens = new Set(queue.map((item) => item.token));
+  const bookings = (data || []).filter((booking) =>
+    CHECKIN_CATEGORIES.includes(booking.listings?.category) && !pendingTokens.has(booking.qr_token));
   await AsyncStorage.setItem(cacheKey(userId), JSON.stringify(bookings));
   return bookings;
 }

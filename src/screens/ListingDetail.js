@@ -21,23 +21,23 @@ const CAT_LABEL = { hotel: '🏨 Hotel', resort: '🌴 Resort', campsite: '⛺ C
 const ROOM_CATS = ['hotel', 'resort', 'airbnb'];
 
 // What the fixed bottom bar shows: price, entrance fee or tickets, depending on the category
-function barInfo(l, prices) {
+function barInfo(l, prices, formatMoney) {
   let pool = prices.filter((p) => (BAR_KINDS[l.category] || []).includes(p.kind));
   if (!pool.length) pool = prices;
   const min = pool.length ? Math.min(...pool.map((p) => Number(p.price))) : null;
   const per = PER[pool.find((p) => Number(p.price) === min)?.unit] || '';
   if (['campsite', 'attraction'].includes(l.category)) {
     if (l.entrance_fee_free || min === 0) return { label: 'Entrance fee', value: 'Free', per: '' };
-    return min === null ? { label: 'Entrance fee', value: 'On request', per: '' } : { label: 'Entrance from', value: `$${min}`, per };
+    return min === null ? { label: 'Entrance fee', value: 'On request', per: '' } : { label: 'Entrance from', value: formatMoney(min), per };
   }
   if (min === null) return { label: 'Price', value: 'On request', per: '' };
   const label = l.category === 'event' ? 'Tickets from' : ROOM_CATS.includes(l.category) ? 'Room from' : 'From';
-  return { label, value: min === 0 ? 'Free' : `$${min}`, per };
+  return { label, value: min === 0 ? 'Free' : formatMoney(min), per };
 }
 const today = () => ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date().getDay()];
 
 export default function ListingDetail({ route, navigation }) {
-  const { id } = route.params; const { session, subscribed, ensureLogin, isProvider } = useAuth(); const insets = useSafeAreaInsets();
+  const { id } = route.params; const { session, subscribed, ensureLogin, isProvider, formatMoney } = useAuth(); const insets = useSafeAreaInsets();
   const [l, setL] = useState(null); const [prices, setPrices] = useState([]); const [offers, setOffers] = useState([]);
   const [reviews, setReviews] = useState([]); const [contact, setContact] = useState(null);
   const [slide, setSlide] = useState(0); const [left, setLeft] = useState(null);
@@ -61,7 +61,7 @@ export default function ListingDetail({ route, navigation }) {
 
   if (!l) return <Loader />;
   const offer = bestOffer(offers);
-  const bar = barInfo(l, prices);
+  const bar = barInfo(l, prices, formatMoney);
   const photos = l.photos?.length ? l.photos : [null];
   const hasRooms = ROOM_CATS.includes(l.category);
   const rooms = hasRooms ? prices.filter((p) => p.kind === 'room').sort((a, b) => Number(a.price) - Number(b.price)) : [];
@@ -75,7 +75,7 @@ export default function ListingDetail({ route, navigation }) {
     : l.schedule_type === 'tour' && l.starts_on ? { t: 'Tour / trip', v: `${fmt(l.starts_on)} → ${fmt(l.ends_on || l.starts_on)}${l.open_time ? ` · departs ${l.open_time.slice(0, 5)}` : ''}` }
     : l.schedule_type === 'range' && l.starts_on ? { t: 'Available between', v: `${fmt(l.starts_on)} → ${fmt(l.ends_on || l.starts_on)}` } : null;
   const scheduleCard = sched ? <Card><View style={{ flexDirection: 'row', alignItems: 'center' }}><Ionicons name="calendar" size={20} color={C.primary} /><Text style={{ fontWeight: '800', marginLeft: 8 }}>{sched.t}</Text></View><Text style={{ marginTop: 4 }}>{sched.v}</Text></Card> : null;
-  const priceLine = (p) => `${Number(p.price) === 0 ? 'Free' : `$${p.price}`} · ${p.audience} · ${p.unit.replace('_', ' ')}`;
+  const priceLine = (p) => `${Number(p.price) === 0 ? 'Free' : formatMoney(p.price)} · ${p.audience} · ${p.unit.replace('_', ' ')}`;
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <ScrollView contentContainerStyle={{ paddingBottom: 110 + insets.bottom }}>
@@ -105,7 +105,7 @@ export default function ListingDetail({ route, navigation }) {
                 <Text style={{ fontWeight: '800', fontSize: 15 }}>{p.label && p.label !== 'room' ? p.label : 'Room'}</Text>
                 <Muted>{p.audience} · {p.unit.replace('_', ' ')}</Muted>
               </View>
-              <Text style={{ fontWeight: '800', fontSize: 18, color: C.primary }}>{Number(p.price) === 0 ? 'Free' : `$${p.price}`}</Text>
+              <Text style={{ fontWeight: '800', fontSize: 18, color: C.primary }}>{Number(p.price) === 0 ? 'Free' : formatMoney(p.price)}</Text>
             </Card>))}
         </View>}
 
@@ -127,7 +127,7 @@ export default function ListingDetail({ route, navigation }) {
 
         {plain.length > 0 && <Card><Text style={{ fontWeight: '800', marginBottom: 6 }}>Prices</Text>
           {plain.map((p) => <View key={p.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-            <Text style={{ flex: 1 }}>{p.label} · {p.audience} · {p.unit.replace('_', ' ')}</Text><Text style={{ fontWeight: '700' }}>{Number(p.price) === 0 ? 'Free' : `$${p.price}`}</Text></View>)}</Card>}
+            <Text style={{ flex: 1 }}>{p.label} · {p.audience} · {p.unit.replace('_', ' ')}</Text><Text style={{ fontWeight: '700' }}>{Number(p.price) === 0 ? 'Free' : formatMoney(p.price)}</Text></View>)}</Card>}
 
         {['facility', 'activity'].map((k) => { const items = extras.filter((p) => p.kind === k); if (!items.length) return null;
           return (<View key={k}><H>{k === 'facility' ? 'Facilities' : 'Activities'}</H>

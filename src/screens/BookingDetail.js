@@ -16,7 +16,6 @@ import { C } from '../lib/theme';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const CANCELLED = ['cancelled', 'declined'];
-const money = (n) => `$${Number(n || 0).toFixed(2)}`;
 const fmtDate = (d) => { if (!d) return '-'; const x = new Date(`${String(d).slice(0, 10)}T12:00:00`); return `${x.getDate()} ${MONTHS[x.getMonth()]} ${x.getFullYear()}`; };
 const hm = (t) => (t ? String(t).slice(0, 5) : '-');
 const isoTime = (t) => { if (!t) return '-'; const x = new Date(t); return isNaN(x) ? '-' : `${String(x.getHours()).padStart(2, '0')}:${String(x.getMinutes()).padStart(2, '0')}`; };
@@ -32,12 +31,12 @@ const STATUS_STYLE = {
 };
 const statusStyle = (st) => STATUS_STYLE[st] || { label: String(st || '-'), color: '#4A5A52', bg: '#EEF2EF' };
 
-const ticketHtml = (b, items, qr) => `<html><body style="font-family:Arial;padding:24px">
+const ticketHtml = (b, items, qr, formatMoney) => `<html><body style="font-family:Arial;padding:24px">
 <h1 style="color:#1B4432">Booking confirmation</h1><h2>${esc(b.listings?.title)}</h2>
 <p><b>Reference:</b> ${esc(b.id)}</p><p><b>Dates:</b> ${esc(b.start_date)} to ${esc(b.end_date)}</p>
 <p><b>Guests:</b> ${b.guests}</p><p><b>Status:</b> ${esc(b.status)} · <b>Payment:</b> ${esc(b.payment_status)}</p>
-${items.map((i) => `<p>• ${esc(i.label)} × ${i.quantity} — $${Number(i.amount).toFixed(2)}</p>`).join('')}
-<h3>Total: $${Number(b.total).toFixed(2)}</h3>${qr ? `<img src="${qr}" width="180" height="180"/><p>Show this QR at check-in.</p>` : ''}</body></html>`;
+${items.map((i) => `<p>• ${esc(i.label)} × ${i.quantity} — ${esc(formatMoney(i.amount))}</p>`).join('')}
+<h3>Total: ${esc(formatMoney(b.total))}</h3>${qr ? `<img src="${qr}" width="180" height="180"/><p>Show this QR at check-in.</p>` : ''}</body></html>`;
 
 const Section = ({ icon, title, children }) => (
   <View style={s.card}>
@@ -64,17 +63,17 @@ const Row = ({ label, value, bold, color }) => (
     <Text style={[s.rowValue, bold && { fontWeight: '800' }, color && { color }]}>{value}</Text>
   </View>
 );
-const Items = ({ items }) => (items.length === 0 ? <Muted>No items listed.</Muted> : items.map((i, k) => (
+const Items = ({ items, formatMoney }) => (items.length === 0 ? <Muted>No items listed.</Muted> : items.map((i, k) => (
   <View key={i.id || k} style={s.itemRow}>
     <Text style={s.itemLabel}>{i.label}</Text>
-    <Text style={s.itemQty}>{Number(i.quantity)} x {money(i.unit_price)}</Text>
-    <Text style={s.itemAmt}>{money(i.amount)}</Text>
+    <Text style={s.itemQty}>{Number(i.quantity)} x {formatMoney(i.unit_price)}</Text>
+    <Text style={s.itemAmt}>{formatMoney(i.amount)}</Text>
   </View>
 )));
 
 export default function BookingDetail({ route, navigation }) {
   const { id } = route.params;
-  const { session } = useAuth();
+  const { session, formatMoney } = useAuth();
   const [d, setD] = useState(undefined);
   const [err, setErr] = useState(null);
   const [offline, setOffline] = useState(false);
@@ -134,7 +133,7 @@ export default function BookingDetail({ route, navigation }) {
   const download = () => {
     const run = async (qr) => {
       try {
-        const { uri } = await Print.printToFileAsync({ html: ticketHtml(b, items, qr) });
+        const { uri } = await Print.printToFileAsync({ html: ticketHtml(b, items, qr, formatMoney) });
         const dir = FileSystem.documentDirectory + 'bookings/';
         await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
         const dest = `${dir}booking-${String(b.id).slice(0, 8)}.pdf`;
@@ -158,7 +157,7 @@ export default function BookingDetail({ route, navigation }) {
             <View style={[s.pill, { backgroundColor: st.bg, marginRight: 6 }]}><Text style={[s.pillText, { color: st.color }]}>{st.label}</Text></View>
             <View style={[s.pill, { backgroundColor: paid ? '#E6F4EC' : '#FEF3E2' }]}><Text style={[s.pillText, { color: paid ? '#1B7F4B' : '#B45309' }]}>{paid ? 'Paid' : 'Unpaid'}</Text></View>
           </View>
-          <Text style={s.topTotal}>{money(grand)}</Text>
+          <Text style={s.topTotal}>{formatMoney(grand)}</Text>
         </View>
       </View>
 
@@ -196,8 +195,8 @@ export default function BookingDetail({ route, navigation }) {
       </Section>
 
       <Section icon="receipt-outline" title="What you booked">
-        <Items items={items} />
-        <View style={s.sumRow}><Text style={s.sumLabel}>Subtotal</Text><Text style={s.sumVal}>{money(mainTotal)}</Text></View>
+        <Items items={items} formatMoney={formatMoney} />
+        <View style={s.sumRow}><Text style={s.sumLabel}>Subtotal</Text><Text style={s.sumVal}>{formatMoney(mainTotal)}</Text></View>
       </Section>
 
       {kids.length > 0 && (
@@ -217,8 +216,8 @@ export default function BookingDetail({ route, navigation }) {
                   <View style={[s.pill, { backgroundColor: ks.bg }]}><Text style={[s.pillText, { color: ks.color }]}>{ks.label}</Text></View>
                   <Ionicons name="chevron-forward" size={16} color="#9AA8A0" style={{ marginLeft: 4 }} />
                 </TouchableOpacity>
-                <View style={{ marginTop: 6 }}><Items items={[].concat(k.booking_items || [])} /></View>
-                <View style={s.sumRow}><Text style={s.sumLabel}>Add-on total</Text><Text style={s.sumVal}>{money(k.total)}</Text></View>
+                <View style={{ marginTop: 6 }}><Items items={[].concat(k.booking_items || [])} formatMoney={formatMoney} /></View>
+                <View style={s.sumRow}><Text style={s.sumLabel}>Add-on total</Text><Text style={s.sumVal}>{formatMoney(k.total)}</Text></View>
               </View>
             );
           })}
@@ -226,11 +225,11 @@ export default function BookingDetail({ route, navigation }) {
       )}
 
       <Section icon="card-outline" title="Payment summary">
-        <Row label="Main booking" value={money(mainTotal)} />
-        {kids.length > 0 && <Row label={`Add-ons (${kids.length})`} value={money(addonTotal)} />}
-        {transfer > 0 && <Row label="Transfer" value={money(transfer)} />}
+        <Row label="Main booking" value={formatMoney(mainTotal)} />
+        {kids.length > 0 && <Row label={`Add-ons (${kids.length})`} value={formatMoney(addonTotal)} />}
+        {transfer > 0 && <Row label="Transfer" value={formatMoney(transfer)} />}
         <Row label="Payment" value={String(b.payment_status || 'unpaid')} color={paid ? '#1B7F4B' : '#B45309'} bold />
-        <View style={s.grand}><Text style={s.grandLabel}>Total</Text><Text style={s.grandVal}>{money(grand)}</Text></View>
+        <View style={s.grand}><Text style={s.grandLabel}>Total</Text><Text style={s.grandVal}>{formatMoney(grand)}</Text></View>
       </Section>
 
       {showQR && (
@@ -244,7 +243,7 @@ export default function BookingDetail({ route, navigation }) {
 
       {/* actions */}
       <View style={{ marginBottom: 6 }}>
-        {unpaid && <Btn title={busy ? 'Please wait' : `${b.package_id ? 'Pay now (whole trip)' : 'Pay now'} · ${money(grand)}`} onPress={pay} disabled={busy} />}
+        {unpaid && <Btn title={busy ? 'Please wait' : `${b.package_id ? 'Pay now (whole trip)' : 'Pay now'} · ${formatMoney(grand)}`} onPress={pay} disabled={busy} />}
         {unpaid && <Btn kind="ghost" title="✏️ Edit booking" onPress={() => navigation.navigate('EditBooking', { id: b.id })} />}
         {paid && !CANCELLED.includes(b.status) && <Btn kind="ghost" title="⬇️ Download booking (PDF)" onPress={download} />}
         {paid && ['pending', 'accepted', 'completed'].includes(b.status) && <Btn kind="ghost" title="💬 Chat with host" onPress={() => navigation.navigate('Chat', { bookingId: b.id, title: L.title })} />}
@@ -266,7 +265,7 @@ export default function BookingDetail({ route, navigation }) {
           {isReturn && <Row label="Return" value={`${fmtDate(b.return_date || pkg?.return_date)} at ${hm(b.return_time || pkg?.return_time)}`} />}
           {!!veh && <Row label="Vehicle" value={`${veh.name} (max ${veh.max_passengers})`} />}
           {pkg?.distance_km != null && <Row label="Distance" value={`${pkg.distance_km} km`} />}
-          {transfer > 0 && <View style={s.sumRow}><Text style={s.sumLabel}>Transfer price</Text><Text style={s.sumVal}>{money(transfer)}</Text></View>}
+          {transfer > 0 && <View style={s.sumRow}><Text style={s.sumLabel}>Transfer price</Text><Text style={s.sumVal}>{formatMoney(transfer)}</Text></View>}
         </Collapsible>
       )}
     </ScrollView>

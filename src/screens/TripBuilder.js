@@ -12,7 +12,7 @@ import { startPayment } from '../lib/payments';
 
 // Full package: several listings + pickup transport, booked and paid in one go.
 export default function TripBuilder({ navigation }) {
-  const { session } = useAuth();
+  const { session, formatMoney } = useAuth();
   const [people, setPeople] = useState('2'); const [start, setStart] = useState(new Date()); const [days, setDays] = useState('2');
   const [cart, setCart] = useState([]); const [q, setQ] = useState(''); const [rows, setRows] = useState([]); const [page, setPage] = useState(0);
   const [wantPickup, setWantPickup] = useState(false); const [pickup, setPickup] = useState(null); const [km, setKm] = useState(null); const [pickPeople, setPickPeople] = useState('2');
@@ -60,7 +60,7 @@ export default function TripBuilder({ navigation }) {
       {rows.slice(0, PAGE_SIZE).map(l => <Card key={l.id} onPress={() => add(l)} style={{ marginHorizontal: 0 }}><Text>＋ {l.title}</Text><Muted>{l.category} · {l.region}</Muted></Card>)}
       <Pager page={page} setPage={setPage} hasMore={rows.length > PAGE_SIZE} />
       <Label>Your package</Label>
-      {cart.map(c => <Card key={c.id} style={{ marginHorizontal: 0 }}><Text style={{ fontWeight: '700' }}>{c.title}</Text><Muted>${lineTotal(c).toFixed(2)}</Muted><Btn kind="ghost" title="Remove" onPress={() => setCart(x => x.filter(y => y.id !== c.id))} /></Card>)}
+      {cart.map(c => <Card key={c.id} style={{ marginHorizontal: 0 }}><Text style={{ fontWeight: '700' }}>{c.title}</Text><Muted>{formatMoney(lineTotal(c))}</Muted><Btn kind="ghost" title="Remove" onPress={() => setCart(x => x.filter(y => y.id !== c.id))} /></Card>)}
       <Chip label={wantPickup ? '🚐 Pickup included' : '＋ Add pickup transport'} active={wantPickup} onPress={() => setWantPickup(!wantPickup)} />
       {wantPickup && <>
         <Label>Pickup place</Label>
@@ -68,9 +68,9 @@ export default function TripBuilder({ navigation }) {
         {pickup ? <Muted>📍 {pickup.label}</Muted> : null}
         <Label>People to be picked</Label><Input keyboardType="number-pad" value={pickPeople} onChangeText={setPickPeople} />
         {dest ? <RoutePreview from={pickup} to={{ lat: dest.lat, lng: dest.lng }} onKm={setKm} /> : <Muted>Add a place to your package to see the route and price.</Muted>}
-        {vehicles.map(x => { const fits = x.max_passengers >= (Number(pickPeople) || 1); return <Card key={x.id} onPress={() => fits && setVid(x.id)} style={{ marginHorizontal: 0, opacity: fits ? 1 : 0.4, borderWidth: 2, borderColor: vid === x.id ? '#1B4432' : '#E5E7EB' }}><Text>{x.name} · max {x.max_passengers}</Text><Muted>${x.price_per_km}/km + ${x.base_fee}</Muted></Card>; })}
-        <Muted>Transport: ${tprice.toFixed(2)}</Muted></>}
-      <Text style={{ fontSize: 22, fontWeight: '800', marginVertical: 10 }}>Package total: ${total.toFixed(2)}</Text>
+        {vehicles.map(x => { const fits = x.max_passengers >= (Number(pickPeople) || 1); return <Card key={x.id} onPress={() => fits && setVid(x.id)} style={{ marginHorizontal: 0, opacity: fits ? 1 : 0.4, borderWidth: 2, borderColor: vid === x.id ? '#1B4432' : '#E5E7EB' }}><Text>{x.name} · max {x.max_passengers}</Text><Muted>{formatMoney(x.price_per_km)}/km + {formatMoney(x.base_fee)}</Muted></Card>; })}
+        <Muted>Transport: {formatMoney(tprice)}</Muted></>}
+      <Text style={{ fontSize: 22, fontWeight: '800', marginVertical: 10 }}>Package total: {formatMoney(total)}</Text>
       <Btn title="Book everything & pay once" onPress={book} />
     </ScrollView>
   );

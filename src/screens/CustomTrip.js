@@ -324,7 +324,7 @@ export default function CustomTrip({ navigation }) {
             <Label>Pickup time on {first?.date}</Label><TimeField value={pickupTime} onChange={setPickupTime} />
             <RoutePreview from={pickup} to={first ? { lat: first.l.lat, lng: first.l.lng } : null} onKm={setKm} />
             <Label>Vehicle</Label>
-            {vehicles.map((x) => { const fits = x.max_passengers >= people; const price = km != null ? transferPrice(x, km) * (mode === 'round' ? 2 : 1) : null; return (
+            {vehicles.map((x) => { const fits = x.max_passengers >= people; const price = km != null ? transferPrice(x, km) : null; return (
               <Card key={x.id} onPress={() => fits && setVid(x.id)} style={{ marginHorizontal: 0, opacity: fits ? 1 : 0.4, borderWidth: 2, borderColor: vid === x.id ? C.primary : '#E5E7EB', flexDirection: 'row', alignItems: 'center' }}>
                 <View style={{ flex: 1 }}><Text style={{ fontWeight: '800' }}>{x.name}</Text><Muted>Up to {x.max_passengers} passengers</Muted></View>
                 <Text style={{ fontWeight: '800', color: C.primary }}>{price != null ? formatMoney(price) : '—'}</Text></Card>); })}

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, View, Text, Alert, Linking } from 'react-native';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../lib/AuthContext';
 import { Btn, Card, Input, Label, Muted, Loader } from '../../components/ui';
 import Img from '../../components/Img';
 import MapView, { Marker } from '../../components/SafeMap';
@@ -14,6 +15,7 @@ const Block = ({ title, children }) => <Card><Text style={{ fontWeight: '800', f
 const SCHED = { always: 'Ongoing (no end date)', range: 'Activity with an end date', tour: 'Tour / trip with start and end date', one_time: 'Happens once (date and time)' };
 
 export default function AdminListing({ route, navigation }) {
+  const { formatMoney } = useAuth();
   const { id } = route.params; const [d, setD] = useState(null); const [note, setNote] = useState('');
   useEffect(() => { (async () => {
     const { data: l } = await supabase.from('listings').select('*, providers(*)').eq('id', id).single();
@@ -70,7 +72,7 @@ export default function AdminListing({ route, navigation }) {
         {prices.map((x) => (
           <View key={x.id} style={{ borderBottomWidth: 1, borderColor: C.border, paddingVertical: 8 }}>
             <Text style={{ fontWeight: '700' }}>{x.label} <Text style={{ color: C.muted, fontWeight: '400' }}>({x.kind})</Text></Text>
-            <Muted>{x.audience} · {x.unit.replace('_', ' ')} · {Number(x.price) === 0 ? 'Free' : `$${x.price}`}{x.is_optional ? ' · optional' : ' · required'}</Muted>
+            <Muted>{x.audience} · {x.unit.replace('_', ' ')} · {Number(x.price) === 0 ? 'Free' : formatMoney(x.price)}{x.is_optional ? ' · optional' : ' · required'}</Muted>
             {x.description ? <Text style={{ marginTop: 2 }}>{x.description}</Text> : null}
             {['facility', 'activity'].includes(x.kind) && <Img uri={x.photo_url} category={l.category} style={{ height: 110, borderRadius: 10, marginTop: 6 }} />}
           </View>))}

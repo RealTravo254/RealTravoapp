@@ -66,11 +66,12 @@ function Providers() {
 }
 
 function TripRequests() {
+  const { formatMoney } = useAuth();
   const [rows, setRows] = useState([]); const [counter, setCounter] = useState({});
   const load = () => supabase.from('custom_trip_requests').select('*').eq('status', 'pending').is('host_listing_id', null).order('created_at').then(({ data }) => setRows(data || []));
   useEffect(() => { load(); }, []);
   const act = async (id, status) => { await supabase.from('custom_trip_requests').update({ status, offered_price: status === 'countered' ? Number(counter[id]) : undefined }).eq('id', id); load(); };
-  return <ScrollView>{rows.map(r => <Card key={r.id}><Text style={{ fontWeight: '700' }}>{r.is_company ? '🏢' : '👤'} {r.people} people · {r.days} days</Text><Muted>{r.activities.join(', ')} · offer ${r.offered_price ?? '-'}</Muted><Text>{r.note}</Text>
+  return <ScrollView>{rows.map(r => <Card key={r.id}><Text style={{ fontWeight: '700' }}>{r.is_company ? '🏢' : '👤'} {r.people} people · {r.days} days</Text><Muted>{r.activities.join(', ')} · offer {r.offered_price == null ? '-' : formatMoney(r.offered_price)}</Muted><Text>{r.note}</Text>
     <Input placeholder="Counter offer USD" keyboardType="decimal-pad" value={counter[r.id] || ''} onChangeText={(v) => setCounter({ ...counter, [r.id]: v })} />
     <View style={{ flexDirection: 'row' }}><Btn style={{ flex: 1, margin: 2 }} title="Accept" onPress={() => act(r.id, 'accepted')} /><Btn style={{ flex: 1, margin: 2 }} kind="ghost" title="Counter" onPress={() => act(r.id, 'countered')} /><Btn style={{ flex: 1, margin: 2 }} kind="danger" title="Reject" onPress={() => act(r.id, 'rejected')} /></View></Card>)}</ScrollView>;
 }
@@ -285,13 +286,14 @@ function Fees() {
 
 // What each host earned, was paid, and is still owed; record a payout
 function HostBalances() {
+  const { formatMoney } = useAuth();
   const [rows, setRows] = useState([]); const [amt, setAmt] = useState({});
   const load = () => supabase.rpc('admin_host_balances').then(({ data }) => setRows(data || []));
   useEffect(() => { load(); }, []);
   const pay = async (h) => { const a = Number(amt[h.host_id]); if (!(a > 0)) return Alert.alert('Enter the amount you paid'); const { data: u } = await supabase.auth.getUser(); const { error } = await supabase.from('host_payouts').insert({ host_id: h.host_id, amount: a, created_by: u.user.id, note: 'Recorded by admin' }); if (error) Alert.alert('Error', error.message); else { setAmt({ ...amt, [h.host_id]: '' }); load(); } };
   return <ScrollView keyboardShouldPersistTaps="handled">{rows.length === 0 && <Muted style={{ textAlign: 'center', margin: 30 }}>No hosts yet</Muted>}
-    {rows.map((h) => <Card key={h.host_id}><Text style={{ fontWeight: '700' }}>{h.name || 'Host'}</Text><Muted>Earned ${Number(h.net).toFixed(2)} · paid out ${Number(h.paid_out).toFixed(2)}</Muted>
-      <Text style={{ fontSize: 18, fontWeight: '800' }}>Owed: ${Number(h.balance).toFixed(2)}</Text>
+    {rows.map((h) => <Card key={h.host_id}><Text style={{ fontWeight: '700' }}>{h.name || 'Host'}</Text><Muted>Earned {formatMoney(h.net)} · paid out {formatMoney(h.paid_out)}</Muted>
+      <Text style={{ fontSize: 18, fontWeight: '800' }}>Owed: {formatMoney(h.balance)}</Text>
       <Input placeholder="Amount you paid the host" keyboardType="decimal-pad" value={amt[h.host_id] || ''} onChangeText={(t) => setAmt({ ...amt, [h.host_id]: t })} /><Btn kind="ghost" title="Record payout" onPress={() => pay(h)} /></Card>)}</ScrollView>;
 }
 

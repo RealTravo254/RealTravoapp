@@ -34,7 +34,7 @@ const Seg = ({ options, value, onChange }) => (
 
 // A host's booking form opened from a link (travelapp://form/<code>)
 export default function BookingFormScreen({ route, navigation }) {
-  const { slug } = route.params; const { session, ensureLogin } = useAuth();
+  const { slug } = route.params; const { session, ensureLogin, formatMoney } = useAuth();
   const [form, setForm] = useState(undefined); const [l, setL] = useState(null);
   const [date, setDate] = useState(new Date()); const [time, setTime] = useState('10:00'); const [guests, setGuests] = useState(1);
   const [note, setNote] = useState(''); const [busy, setBusy] = useState(false);
@@ -193,7 +193,7 @@ export default function BookingFormScreen({ route, navigation }) {
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 12 }}>
       <Text style={{ fontSize: 22, fontWeight: '800' }}>{form.title}</Text>
       <Muted>{l.title} · hosted by {l.providers?.business_name || 'Host'}</Muted>
-      <Text style={{ fontSize: 20, fontWeight: '800', color: C.primary, marginVertical: 8 }}>${Number(form.price).toFixed(2)} per person</Text>
+      <Text style={{ fontSize: 20, fontWeight: '800', color: C.primary, marginVertical: 8 }}>{formatMoney(form.price)} per person</Text>
 
       <Label>Date and time</Label>
       <View style={{ flexDirection: 'row' }}>
@@ -227,8 +227,8 @@ export default function BookingFormScreen({ route, navigation }) {
             <Label>{needVehicle ? 'Vehicle' : 'Vehicle (optional)'}</Label>
             {vehicles.map((x) => { const fits = x.max_passengers >= guests; return (
               <Card key={x.id} onPress={() => fits && setVid(vid === x.id && !needVehicle ? null : x.id)} style={{ marginHorizontal: 0, opacity: fits ? 1 : 0.4, borderWidth: 2, borderColor: vid === x.id ? C.primary : C.border }}>
-                <Text>{x.name} · max {x.max_passengers}</Text><Muted>${x.price_per_km}/km + ${x.base_fee}</Muted></Card>); })}
-            <Text style={{ fontWeight: '700' }}>Transfer price{isReturn ? ' (both ways)' : ''}: ${tprice.toFixed(2)}{km != null ? ` (${km} km)` : ''}</Text>
+                <Text>{x.name} · max {x.max_passengers}</Text><Muted>{formatMoney(x.price_per_km)}/km + {formatMoney(x.base_fee)}</Muted></Card>); })}
+            <Text style={{ fontWeight: '700' }}>Transfer price{isReturn ? ' (both ways)' : ''}: {formatMoney(tprice)}{km != null ? ` (${km} km)` : ''}</Text>
           </>}
         </Card>
       )}
@@ -240,7 +240,7 @@ export default function BookingFormScreen({ route, navigation }) {
         near.map((x) => { const c = chosen[x.id]; return (
           <Card key={x.id} onPress={() => toggle(x)} style={{ marginHorizontal: 0, borderWidth: 2, borderColor: c ? C.primary : C.border }}>
             <Text style={{ fontWeight: '700' }}>{c ? '☑️ ' : '⬜ '}{x.title}</Text>
-            <Muted>{x.category} · {x.distance_km.toFixed(1)} km away · from ${x.from_price ?? '-'}{c ? ' · tap to remove' : ''}</Muted>
+            <Muted>{x.category} · {x.distance_km.toFixed(1)} km away · from {x.from_price != null ? formatMoney(x.from_price) : 'On request'}{c ? ' · tap to remove' : ''}</Muted>
             {c && <>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <DateField style={{ flex: 1, marginRight: 8 }} value={new Date(c.date + 'T12:00:00')} disabled={c.fixed} suffix={c.fixed ? ' (event date)' : ''}
@@ -248,7 +248,7 @@ export default function BookingFormScreen({ route, navigation }) {
                 {c.fixed ? <Text style={{ fontWeight: '700' }}>🕒 {c.time}</Text> : <TimeField value={c.time} onChange={(tm) => setField(x.id, { time: tm })} />}
               </View>
               {STAY.includes(x.category) && <Stepper label="Nights" value={c.nights} onChange={(n) => setField(x.id, { nights: n })} min={1} max={30} />}
-              <Muted>${lineTotal(c).toFixed(2)} for {guests} {guests === 1 ? 'guest' : 'guests'}</Muted>
+              <Muted>{formatMoney(lineTotal(c))} for {guests} {guests === 1 ? 'guest' : 'guests'}</Muted>
               {overlapsBase(blockOf(c), mb.blocks) && <Muted style={{ color: C.ok }}>ℹ️ This is during your main booking. That's allowed.</Muted>}
             </>}
           </Card>); })}
@@ -258,10 +258,10 @@ export default function BookingFormScreen({ route, navigation }) {
       <Label>Note to the host</Label><Input multiline value={note} onChangeText={setNote} />
 
       <View style={{ marginVertical: 10 }}>
-        <Muted>Main booking: ${mainTotal.toFixed(2)}</Muted>
-        {transfer ? <Muted>Transfer: ${tprice.toFixed(2)}</Muted> : null}
-        {extras.map((c) => <Muted key={c.l.id}>{c.l.title}: ${lineTotal(c).toFixed(2)}</Muted>)}
-        <Text style={{ fontSize: 22, fontWeight: '800', marginTop: 6 }}>Total: ${grand.toFixed(2)}</Text>
+        <Muted>Main booking: {formatMoney(mainTotal)}</Muted>
+        {transfer ? <Muted>Transfer: {formatMoney(tprice)}</Muted> : null}
+        {extras.map((c) => <Muted key={c.l.id}>{c.l.title}: {formatMoney(lineTotal(c))}</Muted>)}
+        <Text style={{ fontSize: 22, fontWeight: '800', marginTop: 6 }}>Total: {formatMoney(grand)}</Text>
       </View>
       <Btn title="Pay now" onPress={() => save(true)} disabled={busy || !!problem} />
       <Btn kind="ghost" title="Pay later (saved in My bookings)" onPress={() => save(false)} disabled={busy || !!problem} />

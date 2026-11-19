@@ -130,7 +130,6 @@ function Root() {
       <Stack.Screen name="ListingDetail" component={G.ListingDetail} options={{ title: '' }} />
       <Stack.Screen name="BookingDetail" component={S.BookingDetail} options={{ title: 'Booking details' }} />
       <Stack.Screen name="Booking" component={S.BookingScreen} options={{ title: 'Book', ...bookingHeader }} />
-      <Stack.Screen name="BookingDetail" component={S.BookingDetail} options={{ title: 'Booking details' }} />
       <Stack.Screen name="EditBooking" component={S.EditBooking} options={{ title: 'Edit booking', ...bookingHeader }} />
       <Stack.Screen name="Inquiry" component={S.Inquiry} options={{ title: 'Ask the host' }} />
       <Stack.Screen name="TravelMap" component={S.TravelMap} />
@@ -174,7 +173,7 @@ export default function App() {
           </WishlistProvider>
         </AuthProvider>
       </ExploreReadyContext.Provider>
-      {splash && <Splash onDone={() => setSplash(false)} />}
+      {splash && <Splash />}
       {!splash && <PermissionPrompt />}
       {!splash && <UpdatePrompt />}
       {!splash && <CrashReport />}

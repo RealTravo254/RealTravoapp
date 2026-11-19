@@ -15,7 +15,7 @@ const DIM = 'rgba(6, 18, 13, 0.72)';
 const ACCENT = '#8FE0B5';
 
 export default function ScanQR() {
-  const { session } = useAuth();
+  const { session, formatMoney } = useAuth();
   const [perm, requestPerm] = useCameraPermissions();
   const [res, setRes] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -25,6 +25,7 @@ export default function ScanQR() {
   const [pendingSync, setPendingSync] = useState(0);
   const [syncError, setSyncError] = useState('');
   const locked = useRef(false);
+  const syncing = useRef(false);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const box = Math.min(width * 0.72, 300);
@@ -47,6 +48,8 @@ export default function ScanQR() {
     if (!session?.user?.id) return undefined;
     let active = true;
     const refresh = async () => {
+      if (syncing.current) return;
+      syncing.current = true;
       try {
         await syncPendingCheckins(session.user.id);
         const [bookings, pending] = await Promise.all([
@@ -68,6 +71,8 @@ export default function ScanQR() {
           console.warn('Could not sync offline check-ins:', e.message);
           if (active) setSyncError(e.message);
         }
+      } finally {
+        syncing.current = false;
       }
     };
     readCheckinCache(session.user.id).then((bookings) => { if (active) setCachedBookings(bookings); })
@@ -179,7 +184,8 @@ export default function ScanQR() {
       const { data: r, error } = await supabase.rpc('scan_qr', { p_token: data.trim() });
       if (error) {
         if (isNetworkError(error)) {
-          await showOfflineBooking(data.trim());
+          const shown = await showOfflineBooking(data.trim());
+          if (!shown) locked.current = false;
           setBusy(false);
           return;
         }
@@ -197,8 +203,13 @@ export default function ScanQR() {
       setBusy(false);
     } catch (e) {
       if (isNetworkError(e)) {
-        try { await showOfflineBooking(data.trim()); }
-        catch (cacheError) { Alert.alert('Could not record check-in offline', cacheError.message); }
+        try {
+          const shown = await showOfflineBooking(data.trim());
+          if (!shown) locked.current = false;
+        } catch (cacheError) {
+          locked.current = false;
+          Alert.alert('Could not record check-in offline', cacheError.message);
+        }
         setBusy(false);
         return;
       }
@@ -259,7 +270,7 @@ export default function ScanQR() {
             <View style={s.divider} />
             <View style={s.totalRow}>
               <Text style={s.totalLabel}>Total</Text>
-              <Text style={s.totalValue}>${Number(b.total || 0).toFixed(2)}</Text>
+              <Text style={s.totalValue}>{formatMoney(b.total)}</Text>
             </View>
           </View>
 
