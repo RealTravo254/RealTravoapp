@@ -11,7 +11,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.realtravo.app",
       "config": {
-        "googleMapsApiKey": "AIzaSyDDEgpli_tVkudExO-skDxNOOXuvwHonj0"
+        "googleMapsApiKey": "AIzaSyDDEgpli_5ttueueeh-skDxNOOvwHonj0"
       },
       "infoPlist": {
         "NSCameraUsageDescription": "Scan booking QR codes",
@@ -33,6 +33,14 @@
     },
     "plugins": [
       [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "backgroundColor": "#1B4432",
+          "imageWidth": 200
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Scan booking QR codes",
@@ -42,18 +50,15 @@
       ],
       [
         "expo-location",
-        {
-          "locationWhenInUsePermission": "Show places near you"
-        }
+        { "locationWhenInUsePermission": "Show places near you" }
       ],
       "expo-localization",
       "expo-web-browser",
       "expo-font"
     ],
     "extra": {
-      "supabaseUrl": "https://whtyrqbmbgyospyrlznx.supabase.co",
-      "supabaseAnonKey": "sb_publishable_u1ODuKbdMUAjBYzxAnxNvg_DOc0qDcS",
-
+      "supabaseUrl": "https://whtyrqbmbgjgdddx.supabase.co",
+      "supabaseAnonKey": "sb_publishable_u1OdfKbdMUAjBYsdghjNvg_DOc0qDcS",
       "eas": {
         "projectId": "03817903-db99-4393-a47e-f5308c1262a3"
       }

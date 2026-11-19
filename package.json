@@ -31,6 +31,7 @@
     "expo-location": "*",
     "expo-print": "*",
     "expo-sharing": "*",
+    "expo-splash-screen": "~58.0.14",
     "expo-status-bar": "*",
     "expo-web-browser": "*",
     "i18n-js": "^4.4.3",
