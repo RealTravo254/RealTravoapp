@@ -1,6 +1,6 @@
 import React from 'react';
 import { ScrollView, Text, View, Alert, Image, TouchableOpacity } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import ScreenHeader from '../components/ScreenHeader';
@@ -42,9 +42,12 @@ export default function ProfileScreen({ navigation }) {
               : <View style={{ width: 92, height: 92, borderRadius: 46, backgroundColor: C.deep, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff', fontSize: 34, fontWeight: '800' }}>{(profile?.first_name || session.user.email)[0].toUpperCase()}</Text></View>}
             <View style={{ position: 'absolute', right: 0, bottom: 0, backgroundColor: C.primary, borderRadius: 14, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="camera" size={15} color="#fff" /></View>
           </TouchableOpacity>
-          <Text style={{ fontSize: 20, fontWeight: '800', marginTop: 10 }}>{name || 'Your name'}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
+            <Text style={{ fontSize: 20, fontWeight: '800' }}>{name || 'Your name'}</Text>
+            {isProvider && <View style={{ marginLeft: 6 }}><MaterialCommunityIcons name="check-decagram" size={22} color="#1D9BF0" /></View>}
+          </View>
           <Muted>{session.user.email}</Muted>
-          {isProvider && <Text style={{ marginTop: 6, color: C.primary, fontWeight: '800' }}>✔ Verified host</Text>}
+          {isProvider && <Text style={{ marginTop: 6, color: '#1D9BF0', fontWeight: '800' }}>Verified host</Text>}
           <View style={{ flexDirection: 'row', marginTop: 12 }}>
             <View style={{ alignItems: 'center', paddingHorizontal: 20 }}><Text style={{ fontSize: 18, fontWeight: '800' }}>${Number(profile?.balance || 0).toFixed(2)}</Text><Muted>{tr('balance')}</Muted></View>
           </View>
@@ -55,7 +58,7 @@ export default function ProfileScreen({ navigation }) {
           <Row icon="person-outline" label="Last name" value={profile?.last_name} onPress={() => navigation.navigate('EditProfile')} />
           <Row icon="male-female-outline" label="Gender" value={profile?.gender} />
           <Row icon="calendar-outline" label="Date of birth" value={profile?.date_of_birth} />
-          <Row icon="flag-outline" label="Country" value={profile?.country} />
+          <Row icon="flag-outline" label="Country" value={profile?.country ? (isProvider ? `🔒 ${profile.country}` : profile.country) : 'Not set'} />
           <Row icon="call-outline" label="Phone" value={profile?.phone || 'Not added'} />
           <Row icon="mail-outline" label="Email" value={session.user.email} onPress={() => navigation.navigate('ChangeEmail')} />
         </Section>

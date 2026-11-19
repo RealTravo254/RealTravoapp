@@ -60,11 +60,19 @@
       ],
       [
         "expo-location",
-        { "locationWhenInUsePermission": "Show places near you" }
+        {
+          "locationWhenInUsePermission": "Show places near you"
+        }
       ],
       "expo-localization",
       "expo-web-browser",
-      "expo-font"
+      "expo-font",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.YOUR_IOS_CLIENT_ID"
+        }
+      ]
     ],
     "extra": {
       "supabaseUrl": "https://whtyrqbmbgyospyrlznx.supabase.co",
