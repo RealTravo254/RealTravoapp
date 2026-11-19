@@ -38,9 +38,11 @@ export default function BookingScreen({ route, navigation }) {
   const [urgent, setUrgent] = useState(false); const [note, setNote] = useState(''); const [useBalance, setUseBalance] = useState(false);
   const [left, setLeft] = useState(undefined);
 
-  // pickup / drop-off / return: main booking only. The pickup section is open from the start (ticked), for every listing type.
+  // pickup / drop-off / return: main booking only. It is the last section, unticked and closed
+  // (guides need a meeting point, and a pickup chosen earlier opens it).
   const needsMeeting = true; const mustMeet = listing.category === 'guide';
-  const [transfer, setTransfer] = useState(true); const [tripType, setTripType] = useState('oneway');
+  const [transfer, setTransfer] = useState(mustMeet || !!pre?.loc); const [open, setOpen] = useState(mustMeet || !!pre?.loc);
+  const [tripType, setTripType] = useState('oneway');
   const [pickupLoc, setPickupLoc] = useState(pre?.loc || null); const [pickupTime, setPickupTime] = useState(pre?.time || null);
   const [sameDrop, setSameDrop] = useState(true); const [dropLoc, setDropLoc] = useState(null);
   const [returnDate, setReturnDate] = useState(null); const [returnTime, setReturnTime] = useState('17:00');
@@ -135,13 +137,29 @@ export default function BookingScreen({ route, navigation }) {
         <Stepper label={tr('guests')} value={guests} onChange={setGuests} min={1} max={maxGuests} />
         {left !== undefined && <Text style={{ color: left === 0 ? C.danger : C.ok, fontWeight: '700' }}>{left === null ? '✅ Available' : left === 0 ? '❌ Fully booked for these dates' : `✅ ${left} places left for these dates`}</Text>}
 
+        <Label>Note to host</Label><Input multiline value={note} onChangeText={setNote} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ flex: 1 }}>{tr('urgent')}</Text><Switch value={urgent} onValueChange={setUrgent} trackColor={{ true: C.primary }} /></View>
+        {bal > 0 && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ flex: 1 }}>Use account balance (${bal.toFixed(2)})</Text><Switch value={useBalance} onValueChange={setUseBalance} trackColor={{ true: C.primary }} /></View>}
+        {offer && <Text style={{ color: '#D2691E', marginTop: 8 }}>🔥 {offer.title} −{offer.percent_off}% (−${calc.discount.toFixed(2)})</Text>}
+
+        {/* LAST SECTION: pickup and return (unticked and closed until the guest ticks it) */}
         {needsMeeting && (
-          <Card style={{ marginHorizontal: 0, marginTop: 10, borderWidth: 2, borderColor: C.primary }}>
-            <Check on={transfer} disabled={mustMeet} onPress={() => setTransfer(!transfer)}>
-              <Text style={{ fontWeight: '800', color: C.primary }}>🚐 {mustMeet ? 'Pickup (required)' : 'Pickup and drop-off'}</Text>
-              <Muted>Pickup to {listing.title}. For the main booking only, not for add-ons. Untick if you do not need a pickup.</Muted>
-            </Check>
-            {transfer && <>
+          <Card style={{ marginHorizontal: 0, marginTop: 14, borderWidth: 2, borderColor: transfer ? C.primary : C.border }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ flex: 1 }}>
+                <Check on={transfer} disabled={mustMeet} onPress={() => { const on = !transfer; setTransfer(on); setOpen(on); }}>
+                  <Text style={{ fontWeight: '800', color: C.primary }}>🚐 {mustMeet ? 'Pickup and return (required)' : 'Pickup and return'}</Text>
+                  <Muted>{transfer ? `For the main booking only, not for add-ons.` : `Tick if you need a pickup to ${listing.title}.`}</Muted>
+                </Check>
+              </View>
+              {transfer && (
+                <TouchableOpacity onPress={() => setOpen(!open)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={{ padding: 8 }}>
+                  <Text style={{ fontSize: 18, color: C.primary }}>{open ? '▲' : '▼'}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {transfer && !open && <Muted>{pickupLoc ? `📍 ${pickupLoc.label}` : 'Tap ▼ to choose pickup place, time and vehicle.'}{tprice > 0 ? ` · $${tprice.toFixed(2)}` : ''}</Muted>}
+            {transfer && open && <>
               <Seg value={tripType} onChange={setTripType} options={[['oneway', 'Pickup only'], ['return', 'Pickup and return']]} />
               <Label>Pickup place</Label>
               <LocBtns set={setPickupLoc} title="Choose your pickup location" loc={pickupLoc} />
@@ -168,10 +186,6 @@ export default function BookingScreen({ route, navigation }) {
         )}
 
         {problems.map((p, i) => <Text key={i} style={{ color: C.danger, fontWeight: '700', marginTop: 4 }}>⚠️ {p}</Text>)}
-        <Label>Note to host</Label><Input multiline value={note} onChangeText={setNote} />
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ flex: 1 }}>{tr('urgent')}</Text><Switch value={urgent} onValueChange={setUrgent} trackColor={{ true: C.primary }} /></View>
-        {bal > 0 && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ flex: 1 }}>Use account balance (${bal.toFixed(2)})</Text><Switch value={useBalance} onValueChange={setUseBalance} trackColor={{ true: C.primary }} /></View>}
-        {offer && <Text style={{ color: '#D2691E', marginTop: 8 }}>🔥 {offer.title} −{offer.percent_off}% (−${calc.discount.toFixed(2)})</Text>}
         <View style={{ marginVertical: 10, padding: 12, borderRadius: 12, backgroundColor: C.primary }}>
           <Text style={{ color: '#fff' }}>Booking: ${calc.total.toFixed(2)}</Text>
           {transfer ? <Text style={{ color: '#fff' }}>Transfer: ${tprice.toFixed(2)}</Text> : null}

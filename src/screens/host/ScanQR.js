@@ -1,26 +1,294 @@
-import React, { useState } from 'react';
-import { View, Text, Alert, ScrollView } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  View, Text, Alert, ScrollView, Animated, Easing, Linking, Vibration,
+  TouchableOpacity, StyleSheet, useWindowDimensions, ActivityIndicator,
+} from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
-import { Btn, Card, Muted } from '../../components/ui';
+import { C } from '../../lib/theme';
+
+const DIM = 'rgba(6, 18, 13, 0.72)';
+const ACCENT = '#8FE0B5';
 
 export default function ScanQR() {
-  const [perm, req] = useCameraPermissions(); const [res, setRes] = useState(null); const [busy, setBusy] = useState(false);
-  if (!perm) return null;
-  if (!perm.granted) return <View style={{ padding: 20 }}><Btn title="Allow camera" onPress={req} /></View>;
+  const [perm, requestPerm] = useCameraPermissions();
+  const [res, setRes] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [torch, setTorch] = useState(false);
+  const locked = useRef(false);
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const box = Math.min(width * 0.72, 300);
+
+  // scan line moving up and down inside the frame
+  const line = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (res) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(line, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(line, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [res, line]);
+
+  // ---------- 1. permission still loading ----------
+  if (!perm) {
+    return (
+      <View style={[s.center, { backgroundColor: '#fff' }]}>
+        <ActivityIndicator color={C.primary} />
+      </View>
+    );
+  }
+
+  // ---------- 2. permission not granted ----------
+  if (!perm.granted) {
+    const blocked = perm.canAskAgain === false;
+    return (
+      <View style={[s.center, { backgroundColor: '#fff', paddingHorizontal: 28 }]}>
+        <View style={s.permIcon}>
+          <Ionicons name="camera-outline" size={40} color={C.primary} />
+        </View>
+        <Text style={s.permTitle}>Camera access needed</Text>
+        <Text style={s.permText}>
+          We use the camera only to scan a guest's booking QR code at check-in. Nothing is recorded or saved.
+        </Text>
+        {blocked ? (
+          <>
+            <Text style={[s.permText, { marginTop: 4 }]}>
+              Camera permission is turned off. Open settings, tap Permissions, then allow Camera.
+            </Text>
+            <TouchableOpacity style={s.primaryBtn} onPress={() => Linking.openSettings()} activeOpacity={0.85}>
+              <Ionicons name="settings-outline" size={18} color="#fff" />
+              <Text style={s.primaryBtnText}>Open settings</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <TouchableOpacity style={s.primaryBtn} onPress={requestPerm} activeOpacity={0.85}>
+            <Ionicons name="camera" size={18} color="#fff" />
+            <Text style={s.primaryBtnText}>Allow camera</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
+
+  // ---------- scan handler ----------
   const onScan = async ({ data }) => {
-    if (busy) return; setBusy(true);
-    const { data: r, error } = await supabase.rpc('scan_qr', { p_token: data });
-    if (error) Alert.alert('Invalid', error.message); else setRes(r);
-    setTimeout(() => setBusy(false), 1500);
+    if (locked.current || !data) return;
+    locked.current = true;
+    setBusy(true);
+    Vibration.vibrate(60);
+    try {
+      const { data: r, error } = await supabase.rpc('scan_qr', { p_token: data });
+      if (error) {
+        Alert.alert('Invalid QR code', error.message, [{ text: 'Scan again', onPress: () => { locked.current = false; setBusy(false); } }]);
+        return;
+      }
+      setTorch(false);
+      setRes(r);
+      setBusy(false);
+    } catch (e) {
+      Alert.alert('Could not check the code', String(e && e.message ? e.message : e), [
+        { text: 'Scan again', onPress: () => { locked.current = false; setBusy(false); } },
+      ]);
+    }
   };
+
+  const scanNext = () => {
+    setRes(null);
+    setBusy(false);
+    locked.current = false;
+  };
+
+  // ---------- 3. result ----------
+  if (res) {
+    const b = res.booking || {};
+    const g = res.guest || {};
+    const paid = String(b.payment_status || '').toLowerCase() === 'paid';
+    return (
+      <View style={{ flex: 1, backgroundColor: '#F4F7F5' }}>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 + insets.bottom }}>
+          <View style={s.resultCard}>
+            <View style={s.okBadge}>
+              <Ionicons name="checkmark" size={30} color="#fff" />
+            </View>
+            <Text style={s.okTitle}>Valid booking</Text>
+            <Text style={s.guestName}>{[g.first_name, g.last_name].filter(Boolean).join(' ') || 'Guest'}</Text>
+            {!!g.country && <Text style={s.guestSub}>{g.country}</Text>}
+
+            <View style={s.divider} />
+
+            <Row icon="calendar-outline" label="Stay" value={`${b.start_date} to ${b.end_date}`} />
+            <Row icon="people-outline" label="Guests" value={String(b.guests ?? '-')} />
+            <Row icon="flag-outline" label="Status" value={String(b.status ?? '-')} />
+            <Row
+              icon="card-outline"
+              label="Payment"
+              value={String(b.payment_status ?? '-')}
+              valueStyle={{ color: paid ? '#1B7F4B' : '#B45309', fontWeight: '800' }}
+            />
+
+            {Array.isArray(res.items) && res.items.length > 0 && (
+              <>
+                <View style={s.divider} />
+                <Text style={s.sectionLabel}>Included</Text>
+                {res.items.map((i, k) => (
+                  <View key={k} style={s.itemRow}>
+                    <Text style={s.itemText}>{i.label}</Text>
+                    <Text style={s.itemQty}>x {i.quantity}</Text>
+                  </View>
+                ))}
+              </>
+            )}
+
+            <View style={s.divider} />
+            <View style={s.totalRow}>
+              <Text style={s.totalLabel}>Total</Text>
+              <Text style={s.totalValue}>${Number(b.total || 0).toFixed(2)}</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity style={[s.primaryBtn, { alignSelf: 'stretch', marginTop: 16 }]} onPress={scanNext} activeOpacity={0.85}>
+            <Ionicons name="qr-code-outline" size={18} color="#fff" />
+            <Text style={s.primaryBtnText}>Scan next</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // ---------- 4. camera with framed scan box ----------
+  const translateY = line.interpolate({ inputRange: [0, 1], outputRange: [8, box - 10] });
+
   return (
-    <View style={{ flex: 1 }}>
-      {!res ? <CameraView style={{ flex: 1 }} barcodeScannerSettings={{ barcodeTypes: ['qr'] }} onBarcodeScanned={onScan} /> :
-        <ScrollView><Card><Text style={{ fontSize: 18, fontWeight: '800' }}>✅ {res.guest?.first_name} {res.guest?.last_name} ({res.guest?.country})</Text>
-          <Muted>{res.booking.start_date} → {res.booking.end_date} · {res.booking.guests} guests · {res.booking.status} · {res.booking.payment_status}</Muted>
-          {res.items.map((i, k) => <Text key={k}>• {i.label} × {i.quantity}</Text>)}
-          <Text>Total: ${Number(res.booking.total).toFixed(2)}</Text><Btn title="Scan next" onPress={() => setRes(null)} /></Card></ScrollView>}
+    <View style={{ flex: 1, backgroundColor: '#000' }}>
+      <CameraView
+        style={StyleSheet.absoluteFill}
+        facing="back"
+        enableTorch={torch}
+        barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+        onBarcodeScanned={busy ? undefined : onScan}
+      />
+
+      {/* dimmed mask with a clear window in the middle */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+        <View style={{ flex: 1, backgroundColor: DIM, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 22 }}>
+          <Text style={s.hint}>Point the camera at the guest's QR code</Text>
+        </View>
+
+        <View style={{ flexDirection: 'row', height: box }}>
+          <View style={{ flex: 1, backgroundColor: DIM }} />
+          <View style={{ width: box, height: box }}>
+            {/* corner brackets */}
+            <View style={[s.corner, s.tl]} />
+            <View style={[s.corner, s.tr]} />
+            <View style={[s.corner, s.bl]} />
+            <View style={[s.corner, s.br]} />
+            {/* moving scan line */}
+            {!busy && <Animated.View style={[s.scanLine, { transform: [{ translateY }] }]} />}
+            {busy && (
+              <View style={s.busyWrap}>
+                <ActivityIndicator size="large" color={ACCENT} />
+                <Text style={s.busyText}>Checking booking</Text>
+              </View>
+            )}
+          </View>
+          <View style={{ flex: 1, backgroundColor: DIM }} />
+        </View>
+
+        <View style={{ flex: 1, backgroundColor: DIM, alignItems: 'center', paddingTop: 26, paddingBottom: insets.bottom + 16 }}>
+          <TouchableOpacity
+            onPress={() => setTorch((t) => !t)}
+            activeOpacity={0.85}
+            style={[s.torchBtn, torch && { backgroundColor: ACCENT, borderColor: ACCENT }]}
+            accessibilityLabel={torch ? 'Turn flashlight off' : 'Turn flashlight on'}
+          >
+            <Ionicons name={torch ? 'flashlight' : 'flashlight-outline'} size={22} color={torch ? C.deep : '#fff'} />
+          </TouchableOpacity>
+          <Text style={s.torchLabel}>{torch ? 'Flashlight on' : 'Flashlight'}</Text>
+        </View>
+      </View>
     </View>
   );
 }
+
+function Row({ icon, label, value, valueStyle }) {
+  return (
+    <View style={s.row}>
+      <View style={s.rowLeft}>
+        <Ionicons name={icon} size={18} color="#5F7A6D" />
+        <Text style={s.rowLabel}>{label}</Text>
+      </View>
+      <Text style={[s.rowValue, valueStyle]}>{value}</Text>
+    </View>
+  );
+}
+
+const CORNER = 34;
+const THICK = 5;
+
+const s = StyleSheet.create({
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  // permission screen
+  permIcon: {
+    width: 84, height: 84, borderRadius: 42, backgroundColor: '#E8F5EE',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 20,
+  },
+  permTitle: { fontSize: 22, fontWeight: '800', color: C.text, marginBottom: 8, textAlign: 'center' },
+  permText: { fontSize: 15, lineHeight: 22, color: '#5F6B66', textAlign: 'center', marginBottom: 12 },
+  primaryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: C.primary, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 14, marginTop: 10,
+  },
+  primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  // camera overlay
+  hint: { color: '#fff', fontSize: 15, fontWeight: '600', textAlign: 'center', paddingHorizontal: 30 },
+  corner: { position: 'absolute', width: CORNER, height: CORNER, borderColor: ACCENT },
+  tl: { top: 0, left: 0, borderTopWidth: THICK, borderLeftWidth: THICK, borderTopLeftRadius: 16 },
+  tr: { top: 0, right: 0, borderTopWidth: THICK, borderRightWidth: THICK, borderTopRightRadius: 16 },
+  bl: { bottom: 0, left: 0, borderBottomWidth: THICK, borderLeftWidth: THICK, borderBottomLeftRadius: 16 },
+  br: { bottom: 0, right: 0, borderBottomWidth: THICK, borderRightWidth: THICK, borderBottomRightRadius: 16 },
+  scanLine: {
+    position: 'absolute', left: 14, right: 14, height: 3, borderRadius: 2, backgroundColor: ACCENT,
+    shadowColor: ACCENT, shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 }, elevation: 4,
+  },
+  busyWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(6,18,13,0.55)' },
+  busyText: { color: '#fff', marginTop: 10, fontWeight: '600' },
+  torchBtn: {
+    width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.5)',
+  },
+  torchLabel: { color: '#fff', marginTop: 8, fontSize: 13, fontWeight: '600' },
+
+  // result card
+  resultCard: {
+    backgroundColor: '#fff', borderRadius: 20, padding: 20, alignItems: 'stretch',
+    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3,
+  },
+  okBadge: {
+    alignSelf: 'center', width: 60, height: 60, borderRadius: 30, backgroundColor: '#1B7F4B',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 10,
+  },
+  okTitle: { textAlign: 'center', fontSize: 13, fontWeight: '700', color: '#1B7F4B', marginBottom: 6 },
+  guestName: { textAlign: 'center', fontSize: 24, fontWeight: '800', color: C.text },
+  guestSub: { textAlign: 'center', fontSize: 14, color: '#5F6B66', marginTop: 2 },
+  divider: { height: 1, backgroundColor: '#E6ECE8', marginVertical: 16 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7 },
+  rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rowLabel: { fontSize: 15, color: '#5F6B66' },
+  rowValue: { fontSize: 15, fontWeight: '700', color: C.text, flexShrink: 1, textAlign: 'right', marginLeft: 12, textTransform: 'capitalize' },
+  sectionLabel: { fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 6 },
+  itemRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
+  itemText: { fontSize: 15, color: C.text, flex: 1 },
+  itemQty: { fontSize: 15, color: '#5F6B66', marginLeft: 12 },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  totalLabel: { fontSize: 16, fontWeight: '700', color: C.text },
+  totalValue: { fontSize: 22, fontWeight: '800', color: C.primary },
+});

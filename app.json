@@ -77,6 +77,7 @@
     "extra": {
       "supabaseUrl": "https://whtyrqbmbgyospyrlznx.supabase.co",
       "supabaseAnonKey": "sb_publishable_u1ODuKbdMUAjBYzxAnxNvg_DOc0qDcS",
+      "googleWebClientId": "885274801224-7ud18tvqr1u4b1q82smmkaeag0ln02c0.apps.googleusercontent.com",
       "eas": {
         "projectId": "03817903-db99-4393-a47e-f5308c1262a3"
       }

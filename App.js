@@ -41,6 +41,7 @@ import TravelMap from './src/screens/TravelMap';
 import AddOns from './src/screens/AddOns';
 import ListingDetail from './src/screens/ListingDetail';
 import BookingScreen from './src/screens/BookingScreen';
+import BookingDetail from './src/screens/BookingDetail';
 import EditBooking from './src/screens/EditBooking';
 import MyTrips from './src/screens/MyTrips';
 import Chat from './src/screens/Chat';
@@ -75,7 +76,7 @@ const safe = (Comp) => function Safe(props) {
   const i = useSafeAreaInsets();
   return <View style={{ flex: 1, paddingBottom: i.bottom, paddingLeft: i.left, paddingRight: i.right }}><ErrorBoundary><Comp {...props} /></ErrorBoundary></View>;
 };
-const S = Object.fromEntries(Object.entries({ AuthScreen, CompleteProfile, Notifications, BookingScreen, EditBooking, TravelMap, AddOns, Chat, TripBuilder, AirportTransfer, CustomTrip, PayWebView, ReviewScreen,
+const S = Object.fromEntries(Object.entries({ AuthScreen, CompleteProfile, Notifications, BookingScreen, BookingDetail, EditBooking, TravelMap, AddOns, Chat, TripBuilder, AirportTransfer, CustomTrip, PayWebView, ReviewScreen,
   ProviderRegister, ListingForm, HostBookings, ScanQR, Analytics, PaymentSettings, AdminHome, PickLocation, EditProfile, Legal, Consent, Subscription, Inquiry, HostInquiries, ChangePassword, Inbox, ChangeEmail, BookingForms, BookingFormScreen, AdminListing }).map(([k, v]) => [k, safe(v)]));
 // one crashing screen never closes the whole app
 const guard = (Comp) => function Guard(props) { return <ErrorBoundary><Comp {...props} /></ErrorBoundary>; };
@@ -123,6 +124,7 @@ function Root() {
       <Stack.Screen name="Notifications" component={S.Notifications} options={{ title: 'Notifications', ...none }} />
       <Stack.Screen name="ListingDetail" component={G.ListingDetail} options={{ title: '' }} />
       <Stack.Screen name="Booking" component={S.BookingScreen} options={{ title: 'Book', ...bookingHeader }} />
+      <Stack.Screen name="BookingDetail" component={S.BookingDetail} options={{ title: 'Booking details' }} />
       <Stack.Screen name="EditBooking" component={S.EditBooking} options={{ title: 'Edit booking', ...bookingHeader }} />
       <Stack.Screen name="Inquiry" component={S.Inquiry} options={{ title: 'Ask the host' }} />
       <Stack.Screen name="TravelMap" component={S.TravelMap} />
