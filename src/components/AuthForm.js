@@ -17,6 +17,19 @@ WebBrowser.maybeCompleteAuthSession();
 const WHY = { book: 'Log in to book.', profile: 'Log in to open your account.', subscribe: 'Log in to continue.', inquiry: 'Log in to contact the host.',
   trips: 'Log in to see your bookings.', host: 'Log in first to become a host.', notifications: 'Log in to see your notifications.' };
 
+// Password box with an eye button: tap to show or hide what you typed
+function PasswordField({ value, onChangeText, placeholder }) {
+  const [show, setShow] = useState(false);
+  return (
+    <View style={{ justifyContent: 'center' }}>
+      <Input placeholder={placeholder} secureTextEntry={!show} autoCapitalize="none" autoCorrect={false} value={value} onChangeText={onChangeText} style={{ paddingRight: 48 }} />
+      <TouchableOpacity onPress={() => setShow(!show)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={{ position: 'absolute', right: 14, top: 0, bottom: 0, justifyContent: 'center' }}>
+        <Ionicons name={show ? 'eye-off-outline' : 'eye-outline'} size={22} color={C.muted} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function AuthForm({ reason, onGuest }) {
   const [mode, setMode] = useState('login');
   const [f, setF] = useState({ first_name: '', last_name: '', gender: '', country: '', phone: '', email: '', password: '', confirm: '' });
@@ -88,13 +101,13 @@ export default function AuthForm({ reason, onGuest }) {
           <Label>Country</Label><CountryPicker value={f.country} onChange={set('country')} />
           <Label>Date of birth (16+)</Label>
           <DateField value={dob} maximumDate={new Date()} onChange={setDob} />
-          
+
           <Label>Phone number (optional)</Label><PhoneField country={f.country} value={f.phone} onChange={set('phone')} />
         </>}
 
         <Label>Email</Label><Input placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" value={f.email} onChangeText={set('email')} />
-        <Label>Password</Label><Input placeholder="Password" secureTextEntry value={f.password} onChangeText={set('password')} />
-        {signupMode && <><Label>Confirm password</Label><Input placeholder="Type the password again" secureTextEntry value={f.confirm} onChangeText={set('confirm')} /></>}
+        <Label>Password</Label><PasswordField placeholder="Password" value={f.password} onChangeText={set('password')} />
+        {signupMode && <><Label>Confirm password</Label><PasswordField placeholder="Type the password again" value={f.confirm} onChangeText={set('confirm')} /></>}
         <Btn title={signupMode ? 'Create account' : 'Log in'} onPress={signupMode ? signup : login} />
 
         <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 12 }}>

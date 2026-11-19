@@ -33,6 +33,16 @@
     },
     "plugins": [
       [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false,
+            "extraProguardRules": "-keep class androidx.work.** { *; }\n-keep class * extends androidx.room.RoomDatabase { *; }"
+          }
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/icon.png",
@@ -57,8 +67,8 @@
       "expo-font"
     ],
     "extra": {
-      "supabaseUrl": "https://whtyrqbmbgjgdddx.supabase.co",
-      "supabaseAnonKey": "sb_publishable_u1OdfKbdMUAjBYsdghjNvg_DOc0qDcS",
+      "supabaseUrl": "https://whtyrqbmbgyospyrlznx.supabase.co",
+      "supabaseAnonKey": "sb_publishable_u1ODuKbdMUAjBYzxAnxNvg_DOc0qDcS",
       "eas": {
         "projectId": "03817903-db99-4393-a47e-f5308c1262a3"
       }
