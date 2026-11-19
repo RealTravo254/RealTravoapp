@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ScrollView, View, Text, Alert, Image, Switch } from 'react-native';
+import { ScrollView, View, Text, Alert, Image, Switch, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { getPosition } from '../../lib/geo';
 import { ymd } from '../../lib/pricing';
 import TimeField from '../../components/TimeField';
@@ -8,7 +8,8 @@ import PickerSheet from '../../components/PickerSheet';
 import { pickLocation } from '../../lib/pickBus';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/AuthContext';
-import { pickAndUploadPhoto } from '../../lib/upload';
+import { pickAndUploadPhotos } from '../../lib/uploadMany';
+import { C } from '../../lib/theme';
 import { Btn, Card, Input, Label, Chip, Muted } from '../../components/ui';
 import CountryPicker from '../../components/CountryPicker';
 import SelectField from '../../components/SelectField';
@@ -19,9 +20,33 @@ const AUD = ['adult', 'child', 'foreigner', 'resident', 'group', 'vip', 'vvip', 
 const KINDS = ['entrance', 'facility', 'activity', 'ticket', 'room', 'guide'];
 const UNITS = ['per_person', 'per_group', 'per_night', 'per_day'];
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
-// what each kind of host may list (the database enforces the same)
-const CAT_OPTS = { hotel: ['hotel'], campsite: ['campsite', 'event'], attraction: ['attraction'], activity: ['airbnb', 'activity', 'event', 'guide'] };
-const PROV_LABEL = { hotel: 'Hotel', campsite: 'Campsite', attraction: 'Attraction', activity: 'Company / business' };
+const MAX_PHOTOS = 12;
+
+// what each kind of host may list. Hotel hosts can also host events.
+const CAT_OPTS = {
+  hotel: ['hotel', 'resort', 'event'],
+  campsite: ['campsite', 'event'],
+  attraction: ['attraction'],
+  activity: ['airbnb', 'activity', 'event', 'guide'],
+};
+const CAT_LABEL = { hotel: 'Hotel', resort: 'Resort', campsite: 'Campsite', attraction: 'Attraction', airbnb: 'Airbnb', activity: 'Activity', event: 'Event', guide: 'Guide' };
+const PROV_LABEL = { hotel: 'Hotel / Resort', campsite: 'Campsite', attraction: 'Attraction', activity: 'Company / business' };
+
+// These can only be listed ONCE per provider (hotel and resort share the same slot). Events are unlimited.
+const SLOT = { hotel: 'lodging', resort: 'lodging', campsite: 'campsite', attraction: 'attraction' };
+
+// The "main" price each category must have
+const MAIN = { hotel: 'room', resort: 'room', event: 'ticket', guide: 'guide' }; // everything else = entrance
+const MAIN_TXT = {
+  entrance: { title: 'Entrance fee', hint: 'What guests pay to enter, in USD. Add more rows for child, foreigner, resident, etc.' },
+  room: { title: 'Room price', hint: 'Price per night in USD. Add a row for each room type.' },
+  ticket: { title: 'Ticket price', hint: 'What guests pay for a ticket, in USD.' },
+  guide: { title: 'Guide fee', hint: 'What guests pay for the guide, in USD.' },
+};
+const UNIT_FOR = { room: 'per_night', guide: 'per_day' };
+
+const blank = (kind, price = '0') => ({ kind, label: '', audience: 'adult', unit: UNIT_FOR[kind] || 'per_person', price, is_optional: kind === 'facility' || kind === 'activity', description: '', photo_url: null });
+
 const hoursFrom = (l) => Object.fromEntries(DAYS.map((d) => [d, l?.opening_hours?.[d] ?? (l ? (l.open_days?.includes(d) ? { open: l.open_time?.slice(0, 5) || '08:00', close: l.close_time?.slice(0, 5) || '18:00' } : { closed: true }) : { open: '08:00', close: '18:00' })]));
 
 export default function ListingForm({ route, navigation }) {
@@ -29,25 +54,62 @@ export default function ListingForm({ route, navigation }) {
   const approved = providers.filter((p) => p.verification === 'approved');
   const [providerId, setProviderId] = useState(listing?.provider_id || approved[0]?.id);
   const provider = providers.find((p) => p.id === providerId);
-  const catOptions = CAT_OPTS[provider?.category] || [];
-  const locked = !!listing?.verified_once; // category + location are fixed after the first approval
+  const locked = !!listing?.verified_once; // location is fixed after the first approval
+  const catLocked = !!listing; // category can never be changed once the listing exists
   const old = listing?.facilities || [];
-  const [f, setF] = useState({ category: listing?.category || (CAT_OPTS[provider?.category] || [])[0] || 'hotel', title: listing?.title || '', description: listing?.description || '',
+
+  // what this provider already listed (to enforce one hotel/resort, one campsite, one attraction)
+  const [existing, setExisting] = useState(null);
+  useEffect(() => {
+    if (!providerId) return;
+    setExisting(null);
+    supabase.from('listings').select('id, category').eq('provider_id', providerId).is('deleted_at', null).then(({ data }) => setExisting(data || []));
+  }, [providerId]);
+  const taken = new Set((existing || []).filter((x) => x.id !== listing?.id && SLOT[x.category]).map((x) => SLOT[x.category]));
+  const allOpts = CAT_OPTS[provider?.category] || [];
+  const catOptions = allOpts.filter((c) => !SLOT[c] || !taken.has(SLOT[c]));
+
+  const [f, setF] = useState({ category: listing?.category || allOpts[0] || 'hotel', title: listing?.title || '', description: listing?.description || '',
     country: listing?.country || provider?.country || '', region: listing?.region || provider?.region || '', location_name: listing?.location_name || '',
     lat: listing?.lat, lng: listing?.lng, google_place_id: listing?.google_place_id, hours: hoursFrom(listing),
     entrance_fee_free: !!listing?.entrance_fee_free, amenities: old.filter((a) => AMENITIES.includes(a)), other: old.filter((a) => !AMENITIES.includes(a)).join(', '),
     photos: listing?.photos || [], event_date: listing?.event_date, schedule_type: listing?.schedule_type || 'always', starts_on: listing?.starts_on || '', ends_on: listing?.ends_on || '',
     tour_time: listing?.open_time ? listing.open_time.slice(0, 5) : '08:00', one_date: listing?.event_date ? ymd(new Date(listing.event_date)) : '',
     one_time: listing?.event_date ? `${String(new Date(listing.event_date).getHours()).padStart(2, '0')}:${String(new Date(listing.event_date).getMinutes()).padStart(2, '0')}` : '18:00', daily_limit: listing?.daily_limit ? String(listing.daily_limit) : '', pickup_times: listing?.pickup_times || [] });
-  const [prices, setPrices] = useState([]); const [newPT, setNewPT] = useState('08:00');
+
+  // new listing: if the chosen category is no longer allowed (e.g. hotel already listed), jump to the first allowed one
+  useEffect(() => {
+    if (listing || !existing || !catOptions.length) return;
+    if (!catOptions.includes(f.category)) setF((x) => ({ ...x, category: catOptions[0] }));
+  }, [existing, providerId]);
+
+  const [prices, setPrices] = useState([]); const [pricesLoaded, setPricesLoaded] = useState(!listing);
+  const [newPT, setNewPT] = useState('08:00');
   const [contact, setContact] = useState({ email: provider?.contact_email || '', phone: provider?.contact_phone || '', whatsapp: provider?.contact_whatsapp || '' });
   const [placeQ, setPlaceQ] = useState(''); const [results, setResults] = useState([]); const [dpick, setDpick] = useState(null);
   const [regions, setRegions] = useState([]); const [sameWa, setSameWa] = useState(true);
+  const [busy, setBusy] = useState(null); // text while general photos are picking/uploading
+  const [rowBusy, setRowBusy] = useState(null); // index of the price row whose photo is uploading
   const set = (k) => (v) => setF((x) => ({ ...x, [k]: v }));
+
+  const mainKind = MAIN[f.category] || 'entrance';
+  const canBeFree = ['entrance', 'ticket'].includes(mainKind);
+  const isFree = canBeFree && f.entrance_fee_free;
+
   useEffect(() => { if (!f.country) return setRegions([]); supabase.from('country_divisions').select('name, countries!inner(name)').eq('countries.name', f.country).eq('active', true).order('name').then(({ data }) => setRegions((data || []).map((r) => r.name))); }, [f.country]);
   useEffect(() => { if (!listing) return;
-    supabase.from('listing_prices').select('*').eq('listing_id', listing.id).then(({ data }) => setPrices(data || []));
+    supabase.from('listing_prices').select('*').eq('listing_id', listing.id).then(({ data }) => { setPrices(data || []); setPricesLoaded(true); });
     supabase.from('listing_contacts').select('*').eq('listing_id', listing.id).maybeSingle().then(({ data }) => data && setContact(data)); }, []);
+
+  // always keep one (empty) main price row ready so the host has to fill in the entrance / room / ticket price
+  useEffect(() => {
+    if (!pricesLoaded) return;
+    setPrices((p) => {
+      const kept = p.filter((x) => !(x.seed && x.kind !== mainKind)); // drop untouched rows of the previous category
+      if (isFree || kept.some((x) => x.kind === mainKind)) return kept;
+      return [{ ...blank(mainKind, ''), seed: true }, ...kept];
+    });
+  }, [mainKind, isFree, pricesLoaded]);
 
   const searchPlace = async () => {
     const r = await fetch(`https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(placeQ)}&key=${CONFIG.googleKey}`).then((x) => x.json());
@@ -62,15 +124,42 @@ export default function ListingForm({ route, navigation }) {
   const copyToAll = () => { const first = DAYS.map((d) => f.hours[d]).find((h) => !h.closed); if (first) setF((x) => ({ ...x, hours: Object.fromEntries(DAYS.map((d) => [d, { ...first }])) })); };
   const toggleAmenity = (a) => set('amenities')(f.amenities.includes(a) ? f.amenities.filter((x) => x !== a) : [...f.amenities, a]);
 
-  const addPrice = (kind = 'entrance') => setPrices((p) => [...p, { kind, label: '', audience: 'adult', unit: 'per_person', price: '0', is_optional: kind === 'facility' || kind === 'activity', description: '', photo_url: null }]);
-  const updPrice = (i, k, v) => setPrices((p) => p.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  const addPrice = (kind) => setPrices((p) => [...p, blank(kind)]);
+  const addMainPrice = () => setPrices((p) => {
+    const used = p.filter((x) => x.kind === mainKind).map((x) => x.audience);
+    return [...p, { ...blank(mainKind, ''), audience: AUD.find((a) => !used.includes(a)) || 'adult' }];
+  });
+  const updPrice = (i, k, v) => setPrices((p) => p.map((x, j) => (j === i ? { ...x, [k]: v, seed: false } : x)));
   const cycle = (arr, cur) => arr[(arr.indexOf(cur) + 1) % arr.length];
   const needsDetails = (k) => k === 'facility' || k === 'activity';
 
+  // ---- photos: several at once, with a visible loading state ----
+  const addPhotos = async () => {
+    if (busy) return;
+    const room = MAX_PHOTOS - f.photos.length;
+    if (room <= 0) return Alert.alert('Photos', `You can add up to ${MAX_PHOTOS} photos.`);
+    setBusy('Opening your gallery…');
+    try {
+      const urls = await pickAndUploadPhotos(session.user.id, {
+        limit: room,
+        onStart: (n) => setBusy(`Uploading 0 of ${n}…`),
+        onProgress: (d, n) => setBusy(`Uploading ${d} of ${n}…`),
+      });
+      if (urls.length) setF((x) => ({ ...x, photos: [...x.photos, ...urls].slice(0, MAX_PHOTOS) }));
+    } catch (e) { Alert.alert('Upload failed', e.message); } finally { setBusy(null); }
+  };
+  const addRowPhoto = async (i) => {
+    if (rowBusy !== null) return;
+    setRowBusy(i);
+    try { const [u] = await pickAndUploadPhotos(session.user.id, { limit: 1 }); if (u) updPrice(i, 'photo_url', u); }
+    catch (e) { Alert.alert('Upload failed', e.message); } finally { setRowBusy(null); }
+  };
+
   const save = async () => {
     if (!providerId) return Alert.alert('Your provider registration must be approved first');
-    if (!catOptions.includes(f.category)) return Alert.alert('Category', 'Your registration cannot list this type.');
+    if (!catOptions.includes(f.category)) return Alert.alert('Category', SLOT[f.category] ? `You already listed your ${CAT_LABEL[f.category].toLowerCase()}. You can only list one.` : 'Your registration cannot list this type.');
     if (!f.title || !f.lat) return Alert.alert('Title and a map location are required');
+    if (!isFree && !prices.some((p) => p.kind === mainKind && Number(p.price) > 0)) return Alert.alert(MAIN_TXT[mainKind].title, `Enter the ${MAIN_TXT[mainKind].title.toLowerCase()} (more than 0)${canBeFree ? ', or switch on "Free entrance"' : ''}.`);
     for (const d of DAYS) { const h = f.hours[d]; if (!h.closed && (!TIME.test(h.open || '') || !TIME.test(h.close || '') || h.close <= h.open)) return Alert.alert('Opening hours', `${DAY_NAMES[d]}: use HH:MM (24h) and closing after opening, or mark it closed.`); }
     const openDays = DAYS.filter((d) => !f.hours[d].closed); if (!openDays.length) return Alert.alert('Opening hours', 'Open at least one day.');
     for (const p of prices) if (needsDetails(p.kind) && (!p.label || !p.description || !p.photo_url)) return Alert.alert('Facilities & activities', 'Every facility and activity needs a name, a description and one photo.');
@@ -85,31 +174,63 @@ export default function ListingForm({ route, navigation }) {
     let eventIso = null;
     if (sched === 'one_time') { if (!f.one_date) return Alert.alert('Date', 'Choose the date.'); const at = new Date(`${f.one_date}T${f.one_time}:00`); if (at.getTime() < Date.now()) return Alert.alert('Date', 'Choose a date and time in the future.'); eventIso = at.toISOString(); }
     const row = { provider_id: providerId, owner_id: session.user.id, city: provider?.city || listing?.city || null, category: f.category, title: f.title, description: f.description, country: f.country, region: f.region, location_name: f.location_name, lat: f.lat, lng: f.lng, google_place_id: f.google_place_id,
-      opening_hours: f.hours, open_days: openDays, open_time: sched === 'tour' ? f.tour_time : first.open, close_time: first.close, entrance_fee_free: f.entrance_fee_free, facilities: amenities, photos: f.photos, event_date: eventIso, schedule_type: sched, starts_on: (sched === 'range' || sched === 'tour') ? f.starts_on : null, ends_on: (sched === 'range' || sched === 'tour') ? f.ends_on : null,
+      opening_hours: f.hours, open_days: openDays, open_time: sched === 'tour' ? f.tour_time : first.open, close_time: first.close, entrance_fee_free: isFree, facilities: amenities, photos: f.photos, event_date: eventIso, schedule_type: sched, starts_on: (sched === 'range' || sched === 'tour') ? f.starts_on : null, ends_on: (sched === 'range' || sched === 'tour') ? f.ends_on : null,
       daily_limit: f.daily_limit ? Number(f.daily_limit) : null, pickup_times: ['guide', 'activity'].includes(f.category) ? f.pickup_times : [], status: ['approved', 'hidden'].includes(listing?.status) ? listing.status : 'pending', admin_note: null };
     const q = listing ? supabase.from('listings').update(row).eq('id', listing.id).select().single() : supabase.from('listings').insert(row).select().single();
-    const { data, error } = await q; if (error) return Alert.alert('Cannot save', /one_listing_per_provider/.test(error.message) ? `You can list only one ${f.category}.` : error.message);
+    const { data, error } = await q; if (error) return Alert.alert('Cannot save', /one_listing_per_provider|one_main_listing/.test(error.message) ? `You can list only one ${CAT_LABEL[f.category].toLowerCase()}.` : error.message);
     if (listing) await supabase.from('listing_prices').delete().eq('listing_id', data.id);
-    if (prices.length) await supabase.from('listing_prices').insert(prices.map((p) => ({ listing_id: data.id, kind: p.kind, label: p.label || p.kind, audience: p.audience, unit: p.unit, price: Number(p.price) || 0, is_optional: p.is_optional,
+    const toSave = prices.filter((p) => !(isFree && p.kind === mainKind));
+    if (toSave.length) await supabase.from('listing_prices').insert(toSave.map((p) => ({ listing_id: data.id, kind: p.kind, label: p.label || p.kind, audience: p.audience, unit: p.unit, price: Number(p.price) || 0, is_optional: p.is_optional,
       description: needsDetails(p.kind) ? p.description : null, photo_url: needsDetails(p.kind) ? p.photo_url : null })));
     await supabase.from('listing_contacts').upsert({ listing_id: data.id, ...contact, whatsapp: sameWa ? contact.phone : contact.whatsapp });
     Alert.alert(listing?.status === 'approved' ? 'Saved' : 'Submitted', listing?.status === 'approved' ? 'Your changes are live.' : 'Admin will verify this listing before it goes live.'); navigation.goBack();
   };
 
+  const providerNote = !provider ? null
+    : provider.category === 'hotel' ? 'Hotel / resort host: one hotel or resort, plus any number of events.'
+    : provider.category === 'campsite' ? 'Campsite host: one campsite and any number of events.'
+    : provider.category === 'attraction' ? 'Attraction host: one attraction.'
+    : 'Company: Airbnbs, activities, events, guided tours, trips and guides. No separate verification per listing.';
+
+  const renderMainRow = (p, i, count) => (
+    <View key={i} style={{ marginBottom: 10 }}>
+      {mainKind === 'room' && <Input placeholder="Room name (e.g. Standard room, Family suite)" value={p.label} onChangeText={(v) => updPrice(i, 'label', v)} />}
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Chip label={p.audience} onPress={() => updPrice(i, 'audience', cycle(AUD, p.audience))} />
+        <Chip label={p.unit.replace('_', ' ')} onPress={() => updPrice(i, 'unit', cycle(UNITS, p.unit))} />
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Text style={{ fontWeight: '800', color: C.ink, marginRight: 6 }}>$</Text>
+        <Input style={{ flex: 1 }} placeholder="0.00" keyboardType="decimal-pad" value={String(p.price)} onChangeText={(v) => updPrice(i, 'price', v)} />
+        {count > 1 && <Btn style={{ marginLeft: 8 }} kind="danger" title="✕" onPress={() => setPrices((x) => x.filter((_, j) => j !== i))} />}
+      </View>
+    </View>
+  );
+
+  const mainRows = prices.map((p, i) => ({ p, i })).filter(({ p }) => p.kind === mainKind);
+  const extraRows = prices.map((p, i) => ({ p, i })).filter(({ p }) => p.kind !== mainKind);
+
   return (
     <ScrollView contentContainerStyle={{ padding: 12 }} keyboardShouldPersistTaps="handled">
       {!approved.length && <Text style={{ color: '#D64545' }}>No approved provider profile yet.</Text>}
       {!listing && approved.length > 1 && <><Label>Hosting as</Label><View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{approved.map((p) => <View key={p.id} style={{ marginBottom: 6 }}><Chip label={`${PROV_LABEL[p.category] || p.category} · ${p.business_name}`} active={providerId === p.id} onPress={() => { setProviderId(p.id); setF((x) => ({ ...x, category: (CAT_OPTS[p.category] || [])[0] || x.category })); }} /></View>)}</View></>}
-      {provider && <Muted>{provider.category === 'hotel' ? 'Hotel host: one hotel.' : provider.category === 'campsite' ? 'Campsite host: one campsite and any number of events.' : provider.category === 'attraction' ? 'Attraction host: one attraction.' : 'Company: Airbnbs, activities, events, guided tours, trips and guides. No separate verification per listing.'}</Muted>}
-      <Label>Category</Label>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{catOptions.map((c) => <View key={c} style={{ marginBottom: 6 }}><Chip label={c} active={f.category === c} onPress={() => !locked && set('category')(c)} /></View>)}</View>
-      <Label>Title</Label><Input value={f.title} onChangeText={set('title')} />
+      {providerNote && <Muted>{providerNote}</Muted>}
+
+      <Label>What are you listing?</Label>
+      {catLocked
+        ? <><View style={{ flexDirection: 'row' }}><Chip label={CAT_LABEL[f.category] || f.category} active /></View><Muted>🔒 The type cannot be changed after the listing is created.</Muted></>
+        : catOptions.length
+          ? <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{catOptions.map((c) => <View key={c} style={{ marginBottom: 6 }}><Chip label={CAT_LABEL[c] || c} active={f.category === c} onPress={() => set('category')(c)} /></View>)}</View>
+          : <Muted>You have already listed everything this registration allows.</Muted>}
+      {!catLocked && existing && allOpts.some((c) => SLOT[c] && taken.has(SLOT[c])) && <Muted>You already have your {allOpts.filter((c) => SLOT[c] && taken.has(SLOT[c])).map((c) => CAT_LABEL[c].toLowerCase()).join(' / ')} listed, so only the other types are shown.</Muted>}
+
+      <Label>{f.category === 'resort' ? 'Resort name' : f.category === 'hotel' ? 'Hotel name' : 'Title'}</Label><Input value={f.title} onChangeText={set('title')} />
       <Label>Description</Label><Input multiline value={f.description} onChangeText={set('description')} />
       <Label>Country</Label><CountryPicker value={f.country} onChange={set('country')} />
       <Label>Region</Label>{regions.length ? <SelectField value={f.region} options={regions.map((r) => ({ value: r, label: r }))} onChange={set('region')} placeholder="Select region" title="Region" /> : <Input value={f.region} onChangeText={set('region')} />}
 
       <Label>Location (Google Places)</Label>
-      {locked ? <Muted>🔒 Category and location cannot be changed after verification.</Muted> : <>
+      {locked ? <Muted>🔒 Location cannot be changed after verification.</Muted> : <>
         <Input value={placeQ} onChangeText={setPlaceQ} placeholder="Search place name on Google" /><Btn kind="ghost" title="Search Google Places" onPress={searchPlace} />
         {results.map((r) => <Card key={r.place_id} onPress={() => pick(r)} style={{ marginHorizontal: 0 }}><Text>{r.name}</Text><Muted>{r.formatted_address}</Muted></Card>)}
         <Btn kind="ghost" title="🗺️ Choose on map (search or tap)" onPress={onMap} />
@@ -145,7 +266,21 @@ export default function ListingForm({ route, navigation }) {
           minimumDate={dpick === 'end' && f.starts_on ? new Date(f.starts_on + 'T00:00:00') : new Date()}
           onCancel={() => setDpick(null)} onDone={(d) => { const w = dpick; setDpick(null); set(w === 'start' ? 'starts_on' : w === 'end' ? 'ends_on' : 'one_date')(ymd(d)); }} />
       </>)}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text>Free entrance</Text><Switch value={f.entrance_fee_free} onValueChange={set('entrance_fee_free')} /></View>
+
+      {/* ---------- main price: entrance / room / ticket / guide ---------- */}
+      <Label>{MAIN_TXT[mainKind].title}</Label>
+      <Card style={{ marginHorizontal: 0 }}>
+        {canBeFree && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ fontWeight: '700' }}>{mainKind === 'ticket' ? 'Free event' : 'Free entrance'}</Text><Switch value={f.entrance_fee_free} onValueChange={set('entrance_fee_free')} /></View>}
+        {isFree
+          ? <Muted>Guests get in for free.</Muted>
+          : <>
+              <Muted>{MAIN_TXT[mainKind].hint}</Muted>
+              <View style={{ height: 8 }} />
+              {mainRows.map(({ p, i }) => renderMainRow(p, i, mainRows.length))}
+              <Btn kind="ghost" title={mainKind === 'room' ? '＋ Add another room type' : '＋ Add another price'} onPress={addMainPrice} />
+            </>}
+      </Card>
+
       <Label>Daily limit (max guests / tickets per day, empty = unlimited)</Label><Input keyboardType="number-pad" value={f.daily_limit} onChangeText={set('daily_limit')} />
 
       <Label>Amenities (choose from the list)</Label>
@@ -158,26 +293,44 @@ export default function ListingForm({ route, navigation }) {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{f.pickup_times.map((t) => <View key={t} style={{ marginBottom: 6 }}><Chip label={`🕒 ${t}  ✕`} onPress={() => set('pickup_times')(f.pickup_times.filter((x) => x !== t))} /></View>)}</View>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}><View style={{ flex: 1 }}><TimeField label="New time" value={newPT} onChange={setNewPT} /></View><Btn style={{ marginLeft: 8 }} kind="ghost" title="＋ Add" onPress={() => { if (!f.pickup_times.includes(newPT)) set('pickup_times')([...f.pickup_times, newPT].sort()); }} /></View>
       </>}
-      <Label>Photos</Label>
-      <ScrollView horizontal>{f.photos.map((u) => <Image key={u} source={{ uri: u }} style={{ width: 90, height: 90, marginRight: 6, borderRadius: 8 }} />)}</ScrollView>
-      <Btn kind="ghost" title="＋ Add photo" onPress={async () => { try { const u = await pickAndUploadPhoto(session.user.id); if (u) set('photos')([...f.photos, u]); } catch (e) { Alert.alert('Upload failed', e.message); } }} />
 
-      <Label>Prices, facilities and activities</Label>
-      <Muted>Entrance / room / ticket / guide are simple prices. Facilities and activities also need a description and one photo.</Muted>
-      {prices.map((p, i) => (
+      {/* ---------- photos: multi-select ---------- */}
+      <Label>Photos ({f.photos.length}/{MAX_PHOTOS})</Label>
+      <Muted>Select several photos at once. The first one is the cover photo.</Muted>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 6 }}>
+        {f.photos.map((u, idx) => (
+          <View key={u} style={{ marginRight: 8 }}>
+            <Image source={{ uri: u }} style={{ width: 96, height: 96, borderRadius: 12 }} />
+            {idx === 0 && <View style={{ position: 'absolute', left: 6, bottom: 6, backgroundColor: C.ink, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}><Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>Cover</Text></View>}
+            <TouchableOpacity onPress={() => set('photos')(f.photos.filter((x) => x !== u))} style={{ position: 'absolute', right: 4, top: 4, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(16,34,46,0.8)', alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
+        {busy && <View style={{ width: 96, height: 96, borderRadius: 12, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={C.primary} /></View>}
+      </ScrollView>
+      {busy && <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.primarySoft, borderRadius: 12, padding: 10, marginBottom: 6 }}><ActivityIndicator color={C.primary} /><Text style={{ marginLeft: 10, color: C.primary, fontWeight: '700' }}>{busy}</Text></View>}
+      <Btn kind="ghost" title={busy ? 'Please wait…' : '＋ Add photos'} onPress={addPhotos} />
+
+      {/* ---------- other prices, facilities, activities ---------- */}
+      <Label>Facilities, activities and extra prices</Label>
+      <Muted>Facilities and activities also need a description and one photo.</Muted>
+      {extraRows.map(({ p, i }) => (
         <Card key={i} style={{ marginHorizontal: 0 }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
             <Chip label={p.kind} onPress={() => updPrice(i, 'kind', cycle(KINDS, p.kind))} /><Chip label={p.audience} onPress={() => updPrice(i, 'audience', cycle(AUD, p.audience))} />
             <Chip label={p.unit.replace('_', ' ')} onPress={() => updPrice(i, 'unit', cycle(UNITS, p.unit))} /><Chip label={p.is_optional ? 'optional' : 'required'} onPress={() => updPrice(i, 'is_optional', !p.is_optional)} /></View>
-          <Input placeholder={needsDetails(p.kind) ? 'Name (e.g. Boat ride, Spa, Game drive)' : 'Label (e.g. Entrance, Standard room, VIP ticket)'} value={p.label} onChangeText={(v) => updPrice(i, 'label', v)} />
+          <Input placeholder={needsDetails(p.kind) ? 'Name (e.g. Boat ride, Spa, Game drive)' : 'Label (e.g. Parking, Camera pass)'} value={p.label} onChangeText={(v) => updPrice(i, 'label', v)} />
           {needsDetails(p.kind) && <>
             <Input multiline placeholder="Details: what is included, duration, what to bring" value={p.description || ''} onChangeText={(v) => updPrice(i, 'description', v)} />
-            {p.photo_url ? <Image source={{ uri: p.photo_url }} style={{ height: 120, borderRadius: 10 }} /> : null}
-            <Btn kind="ghost" title={p.photo_url ? 'Change photo' : '📷 Add photo (required)'} onPress={async () => { try { const u = await pickAndUploadPhoto(session.user.id); if (u) updPrice(i, 'photo_url', u); } catch (e) { Alert.alert('Upload failed', e.message); } }} /></>}
+            {rowBusy === i
+              ? <View style={{ height: 120, borderRadius: 10, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={C.primary} /><Text style={{ marginTop: 6, color: C.primary, fontWeight: '700' }}>Uploading photo…</Text></View>
+              : p.photo_url ? <Image source={{ uri: p.photo_url }} style={{ height: 120, borderRadius: 10 }} /> : null}
+            <Btn kind="ghost" title={rowBusy === i ? 'Please wait…' : p.photo_url ? 'Change photo' : '📷 Add photo (required)'} onPress={() => addRowPhoto(i)} /></>}
           <Input placeholder="Price USD (0 = free)" keyboardType="decimal-pad" value={String(p.price)} onChangeText={(v) => updPrice(i, 'price', v)} />
           <Btn kind="danger" title="Remove" onPress={() => setPrices((x) => x.filter((_, j) => j !== i))} /></Card>))}
       <View style={{ flexDirection: 'row' }}>
-        <Btn style={{ flex: 1, marginRight: 4 }} kind="ghost" title="＋ Price" onPress={() => addPrice('entrance')} />
+        <Btn style={{ flex: 1, marginRight: 4 }} kind="ghost" title="＋ Price" onPress={() => addPrice(mainKind === 'ticket' ? 'entrance' : 'ticket')} />
         <Btn style={{ flex: 1, marginHorizontal: 2 }} kind="ghost" title="＋ Facility" onPress={() => addPrice('facility')} />
         <Btn style={{ flex: 1, marginLeft: 4 }} kind="ghost" title="＋ Activity" onPress={() => addPrice('activity')} />
       </View>
