@@ -6,6 +6,7 @@ import { supabase, PAGE_SIZE } from '../../lib/supabase';
 import { useAuth } from '../../lib/AuthContext';
 import { C, shadow } from '../../lib/theme';
 import Pagination from '../../components/Pagination';
+import { refreshCheckinCache } from '../../lib/offlineCheckins';
 
 const FILTERS = [['all', 'All'], ['pending', 'Pending'], ['accepted', 'Accepted'], ['completed', 'Completed']];
 
@@ -71,6 +72,8 @@ export default function HostBookings({ navigation }) {
     const { data: mine } = await supabase.from('listings').select('id').eq('owner_id', session.user.id);
     const ids = (mine || []).map((x) => x.id);
     if (!ids.length) { setRows([]); setTotal(0); setLoading(false); return; }
+    try { await refreshCheckinCache(session.user.id); }
+    catch (e) { console.warn('Could not refresh offline check-in bookings:', e.message); }
 
     const from = page * PAGE_SIZE;
     let q = supabase

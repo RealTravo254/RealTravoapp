@@ -72,16 +72,16 @@ function clashes(list) {
 }
 
 export default function CustomTrip({ navigation }) {
-  const { session } = useAuth();
+  const { session, formatMoney } = useAuth();
   const scrollRef = useRef(null); const listY = useRef(0); const reqId = useRef(0); const keyRef = useRef('');
   const [step, setStep] = useState(0); const [busy, setBusy] = useState(false); const [feePct, setFeePct] = useState(20);
   // 1 where
   const [country, setCountry] = useState(''); const [region, setRegion] = useState(''); const [regions, setRegions] = useState([]); const [search, setSearch] = useState(''); const [searchQ, setSearchQ] = useState(''); const [mine, setMine] = useState(null);
   // 2 choose
   const [people, setPeople] = useState(2); const [days, setDays] = useState(3); const [start, setStart] = useState(new Date(Date.now() + 86400000));
-  const [cat, setCat] = useState('all'); const [list, setList] = useState(null); const [total, setTotal] = useState(0); const [page, setPage] = useState(0); const [chosen, setChosen] = useState({});
+  const [cat, setCat] = useState('all'); const [list, setList] = useState(null); const [listError, setListError] = useState(''); const [total, setTotal] = useState(0); const [page, setPage] = useState(0); const [chosen, setChosen] = useState({}); const [reload, setReload] = useState(0);
   // 3 pickup
-  const [mode, setMode] = useState('none'); // none | oneway | round
+  const [mode, setMode] = useState('none'); // none | oneway
   const [pickup, setPickup] = useState(null); const [pickupTime, setPickupTime] = useState('08:00'); const [vehicles, setVehicles] = useState([]); const [vid, setVid] = useState(null); const [km, setKm] = useState(null);
 
   const startDay = ymd(start); const endDay = addDays(startDay, days - 1);
@@ -104,7 +104,7 @@ export default function CustomTrip({ navigation }) {
     if (step !== 1) return;
     const key = [cat, country, region, searchQ].join('|');
     if (keyRef.current !== key) { keyRef.current = key; if (page !== 0) { setPage(0); return; } }
-    const id = ++reqId.current; setList(null);
+    const id = ++reqId.current; setList(null); setListError('');
     const g = CATS[cat];
     let q = supabase.from('listings')
       .select('id,title,category,region,country,location_name,lat,lng,photos,rating_avg,rating_count,entrance_fee_free,schedule_type,listing_prices(id,kind,price,unit)', { count: 'exact' })
@@ -112,20 +112,21 @@ export default function CustomTrip({ navigation }) {
     if (g.tour) q = q.eq('schedule_type', 'tour');
     if (country) q = q.eq('country', country);
     if (region) q = q.eq('region', region);
-    if (searchQ) q = q.or(`title.ilike.%${searchQ}%,location_name.ilike.%${searchQ}%`);
+    if (searchQ) q = q.or(`title.ilike.%${searchQ}%,location_name.ilike.%${searchQ}%,region.ilike.%${searchQ}%,country.ilike.%${searchQ}%`);
     // "id" is the tie-breaker so listings with the same title keep a stable order between pages
-    q.order('title').order('id').range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1).then(({ data, count }) => {
+    q.order('title').order('id').range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1).then(({ data, count, error }) => {
       if (id !== reqId.current) return; // an older request finished late
+      if (error) { setList([]); setTotal(0); setListError(error.message); return; }
       setList(uniq(data)); setTotal(count || 0);
     });
-  }, [step, cat, country, region, searchQ, page]);
+  }, [step, cat, country, region, searchQ, page, reload]);
 
   const goPage = (n) => { setPage(n); scrollRef.current?.scrollTo({ y: Math.max(0, listY.current - 8), animated: true }); };
 
   const items = Object.values(chosen).sort((a, b) => ts(a.date, a.time) - ts(b.date, b.time));
   const first = items[0];
   const v = vehicles.find((x) => x.id === vid && x.max_passengers >= people);
-  const tprice = mode !== 'none' && v && km != null ? transferPrice(v, km) * (mode === 'round' ? 2 : 1) : 0;
+  const tprice = mode !== 'none' && v && km != null ? transferPrice(v, km) : 0;
   const itemsTotal = items.reduce((s, c) => s + lineTotal(c, people), 0);
   const grand = itemsTotal + tprice;
   const clash = useMemo(() => clashes(items), [chosen]);
@@ -184,7 +185,7 @@ export default function CustomTrip({ navigation }) {
         if (typeof left === 'number' && left < people) throw new Error(`${c.l.title} has only ${left} places left for that date.`);
       }
       const pickAt = mode !== 'none' ? new Date(`${first.date}T${pickupTime}:00`).toISOString() : null;
-      const r = await supabase.from('trip_packages').insert({ user_id: session.user.id, is_custom: true, people, start_date: startDay, end_date: endDay, trip_type: mode === 'none' ? null : mode,
+      const r = await supabase.from('trip_packages').insert({ user_id: session.user.id, is_custom: true, people, start_date: startDay, end_date: endDay, trip_type: mode === 'none' ? null : 'oneway',
         pickup_location: pickup?.label || null, pickup_lat: pickup?.lat || null, pickup_lng: pickup?.lng || null, pickup_time: pickAt, vehicle_id: mode !== 'none' ? v.id : null,
         pickup_people: mode !== 'none' ? people : null, distance_km: mode !== 'none' ? km : null, transfer_price: tprice, total: grand }).select().single();
       if (r.error) throw r.error; pkgId = r.data.id;
@@ -207,7 +208,7 @@ export default function CustomTrip({ navigation }) {
     } finally { setBusy(false); }
   };
 
-  const optLabel = (p) => `${p.label && p.label !== p.kind ? p.label : p.audience}${p.label && p.label !== p.kind ? ` · ${p.audience}` : ''} · ${Number(p.price) === 0 ? 'Free' : `$${p.price}`}${UNIT_TXT[p.unit] || ''}`;
+  const optLabel = (p) => `${p.label && p.label !== p.kind ? p.label : p.audience}${p.label && p.label !== p.kind ? ` · ${p.audience}` : ''} · ${Number(p.price) === 0 ? 'Free' : formatMoney(p.price)}${UNIT_TXT[p.unit] || ''}`;
 
   return (
     <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" style={{ backgroundColor: '#F6F7F5' }}>
@@ -256,22 +257,22 @@ export default function CustomTrip({ navigation }) {
             {list !== null && <Muted style={{ marginBottom: 4 }}>{total} {total === 1 ? 'place' : 'places'} found</Muted>}
           </View>
 
-          {list === null ? <Loader /> : list.length === 0 ? <Muted style={{ textAlign: 'center', margin: 24 }}>Nothing here yet. Try another region or category.</Muted> :
-            list.map((x) => { const c = chosen[x.id]; const from = cardFrom(x); const freeEntry = x.entrance_fee_free && ['campsite', 'attraction'].includes(x.category); const cover = x.photos?.[0] || null; return (
-              <Card key={x.id} onPress={() => toggle(x)} style={{ marginHorizontal: 0, padding: 0, overflow: 'hidden', borderWidth: 2, borderColor: c ? C.primary : '#E5E7EB', backgroundColor: c ? '#F3F9F5' : '#fff' }}>
+          {list === null ? <Loader /> : listError ? <Card style={{ marginHorizontal: 0 }}><Muted>{listError}</Muted><Btn kind="ghost" title="Try again" onPress={() => setReload((n) => n + 1)} /></Card> : list.length === 0 ? <Muted style={{ textAlign: 'center', margin: 24 }}>Nothing here yet. Try another region or category.</Muted> :
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>{list.map((x) => { const c = chosen[x.id]; const from = cardFrom(x); const freeEntry = x.entrance_fee_free && ['campsite', 'attraction'].includes(x.category); const cover = x.photos?.[0] || null; return (
+              <Card key={x.id} onPress={() => toggle(x)} style={{ width: '49%', marginHorizontal: 0, padding: 0, overflow: 'hidden', borderWidth: 2, borderColor: c ? C.primary : '#E5E7EB', backgroundColor: c ? '#F3F9F5' : '#fff' }}>
                 <View>
-                  <Img uri={cover} category={x.category} style={{ height: 130 }} />
+                  <Img uri={cover} category={x.category} style={{ height: 105 }} />
                   <View style={{ position: 'absolute', left: 10, top: 10, backgroundColor: 'rgba(16,34,46,0.78)', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 }}>
                     <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{CAT_BADGE[x.category] || x.category}</Text></View>
                   <View style={{ position: 'absolute', right: 10, top: 10, width: 28, height: 28, borderRadius: 14, backgroundColor: c ? C.primary : 'rgba(255,255,255,0.9)', alignItems: 'center', justifyContent: 'center' }}>
                     <Text style={{ color: c ? '#fff' : C.muted, fontWeight: '800' }}>{c ? '✓' : '+'}</Text></View>
                 </View>
                 <View style={{ padding: 12 }}>
-                  <Text style={{ fontWeight: '800', fontSize: 16 }}>{x.title}</Text>
-                  <Muted>📍 {x.location_name || x.region}, {x.country}</Muted>
+                  <Text numberOfLines={2} style={{ fontWeight: '800', fontSize: 15 }}>{x.title}</Text>
+                  <Muted numberOfLines={2}>📍 {x.location_name || x.region}, {x.country}</Muted>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
                     <Text style={{ color: C.muted }}>⭐ {Number(x.rating_avg || 0).toFixed(1)} ({x.rating_count || 0})</Text>
-                    <Text style={{ fontWeight: '800', color: C.primary }}>{freeEntry || from === 0 ? 'Free' : from != null ? `From $${from}` : 'On request'}</Text>
+                    <Text style={{ fontWeight: '800', color: C.primary }}>{freeEntry || from === 0 ? 'Free' : from != null ? `From ${formatMoney(from)}` : 'On request'}</Text>
                   </View>
                   {c && <>
                     <View style={{ height: 1, backgroundColor: '#E5E7EB', marginVertical: 10 }} />
@@ -286,11 +287,11 @@ export default function CustomTrip({ navigation }) {
                       {c.fixed ? <Text style={{ fontWeight: '700' }}>🕒 {c.time}</Text> : <TimeField value={c.time} onChange={(t) => setField(x.id, { time: t })} />}
                     </View>
                     {STAY.includes(x.category) && <Stepper label="Nights" value={c.nights} onChange={(n) => setField(x.id, { nights: n })} min={1} max={30} />}
-                    <Text style={{ fontWeight: '800', color: C.primary, marginTop: 4 }}>${lineTotal(c, people).toFixed(2)} for {people} {people === 1 ? 'person' : 'people'}</Text>
+                    <Text style={{ fontWeight: '800', color: C.primary, marginTop: 4 }}>{formatMoney(lineTotal(c, people))} for {people} {people === 1 ? 'person' : 'people'}</Text>
                     <TouchableOpacity onPress={() => toggle(x)}><Text style={{ color: C.danger, fontWeight: '700', marginTop: 6 }}>Remove from trip</Text></TouchableOpacity>
                   </>}
                 </View>
-              </Card>); })}
+              </Card>); })}</View>}
 
           {/* pagination */}
           {total > PAGE_SIZE && <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 10 }}>
@@ -303,7 +304,7 @@ export default function CustomTrip({ navigation }) {
           {items.length > 0 && <Card style={{ marginHorizontal: 0, backgroundColor: '#EAF3EE' }}>
             <Text style={{ fontWeight: '800' }}>Your list ({items.length})</Text>
             {items.map((c) => <Muted key={c.l.id}>{c.date} {c.time} · {c.l.title}{isStay(c) ? ` · ${c.nights} night(s)` : ''}</Muted>)}
-            <Text style={{ fontWeight: '800', marginTop: 4 }}>Total so far: ${itemsTotal.toFixed(2)}</Text></Card>}
+            <Text style={{ fontWeight: '800', marginTop: 4 }}>Total so far: {formatMoney(itemsTotal)}</Text></Card>}
           {problems.map((p, i) => <Text key={i} style={{ color: C.danger, fontWeight: '700', marginTop: 4 }}>⚠️ {p}</Text>)}
         </>}
 
@@ -311,7 +312,7 @@ export default function CustomTrip({ navigation }) {
         {step === 2 && <>
           <Text style={{ fontSize: 18, fontWeight: '800', marginTop: 8 }}>Do you need transport?</Text>
           <Muted>One pickup covers your whole trip.</Muted>
-          {[['none', '🚶 No pickup', 'I will get there myself'], ['oneway', '🚐 Pickup only', 'Pick me up before my first booking'], ['round', '🔁 Pickup and return', 'Pick me up and bring me back']].map(([k, t, s]) => (
+          {[['none', '🚶 No pickup', 'I will get there myself'], ['oneway', '🚐 Pickup only', 'Pick me up before my first booking']].map(([k, t, s]) => (
             <Card key={k} onPress={() => setMode(k)} style={{ marginHorizontal: 0, borderWidth: 2, borderColor: mode === k ? C.primary : '#E5E7EB' }}><Text style={{ fontWeight: '800' }}>{t}</Text><Muted>{s}</Muted></Card>))}
           {mode !== 'none' && <>
             <Label>Pickup place</Label>
@@ -326,7 +327,7 @@ export default function CustomTrip({ navigation }) {
             {vehicles.map((x) => { const fits = x.max_passengers >= people; const price = km != null ? transferPrice(x, km) * (mode === 'round' ? 2 : 1) : null; return (
               <Card key={x.id} onPress={() => fits && setVid(x.id)} style={{ marginHorizontal: 0, opacity: fits ? 1 : 0.4, borderWidth: 2, borderColor: vid === x.id ? C.primary : '#E5E7EB', flexDirection: 'row', alignItems: 'center' }}>
                 <View style={{ flex: 1 }}><Text style={{ fontWeight: '800' }}>{x.name}</Text><Muted>Up to {x.max_passengers} passengers</Muted></View>
-                <Text style={{ fontWeight: '800', color: C.primary }}>{price != null ? `$${price.toFixed(2)}` : '—'}</Text></Card>); })}
+                <Text style={{ fontWeight: '800', color: C.primary }}>{price != null ? formatMoney(price) : '—'}</Text></Card>); })}
             {pickupProblems.map((p, i) => <Text key={i} style={{ color: C.danger, fontWeight: '700', marginTop: 4 }}>⚠️ {p}</Text>)}
           </>}
         </>}
@@ -338,16 +339,16 @@ export default function CustomTrip({ navigation }) {
           {items.map((c) => <Card key={c.l.id} style={{ marginHorizontal: 0 }}><View style={{ flexDirection: 'row' }}>
             <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>{c.l.title}</Text><Muted>{CAT_BADGE[c.l.category] || c.l.category} · {c.date} · {c.time}{isStay(c) ? ` · ${c.nights} night(s)` : ''}</Muted>
               {c.items[0]?.label && c.items[0].label !== c.items[0].kind ? <Muted>{c.items[0].label}</Muted> : null}</View>
-            <Text style={{ fontWeight: '800' }}>${lineTotal(c, people).toFixed(2)}</Text></View></Card>)}
+            <Text style={{ fontWeight: '800' }}>{formatMoney(lineTotal(c, people))}</Text></View></Card>)}
           {mode !== 'none' && <Card style={{ marginHorizontal: 0 }}><View style={{ flexDirection: 'row' }}>
-            <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>🚐 {mode === 'round' ? 'Pickup and return' : 'Pickup'} · {v?.name}</Text><Muted>{pickup?.label} · {pickupTime}</Muted></View>
-            <Text style={{ fontWeight: '800' }}>${tprice.toFixed(2)}</Text></View></Card>}
+            <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>🚐 Pickup only · {v?.name}</Text><Muted>{pickup?.label} · {pickupTime}</Muted></View>
+            <Text style={{ fontWeight: '800' }}>{formatMoney(tprice)}</Text></View></Card>}
           <View style={{ marginVertical: 10, padding: 14, borderRadius: 14, backgroundColor: C.primary }}>
-            <Text style={{ color: '#fff', opacity: 0.9 }}>Total</Text><Text style={{ color: '#fff', fontSize: 28, fontWeight: '800' }}>${grand.toFixed(2)}</Text></View>
+            <Text style={{ color: '#fff', opacity: 0.9 }}>Total</Text><Text style={{ color: '#fff', fontSize: 28, fontWeight: '800' }}>{formatMoney(grand)}</Text></View>
           <Card style={{ marginHorizontal: 0, backgroundColor: '#FFF8E6' }}>
             <Text style={{ fontWeight: '800' }}>About cancelling</Text>
             <Muted>The whole booking cannot be cancelled. You can cancel single items later in My trips; a {feePct}% cancellation fee applies to each item you cancel.</Muted></Card>
-          <Btn title={busy ? 'Please wait…' : `Pay $${grand.toFixed(2)}`} onPress={pay} disabled={busy} />
+          <Btn title={busy ? 'Please wait…' : `Pay ${formatMoney(grand)}`} onPress={pay} disabled={busy} />
         </>}
 
         <View style={{ flexDirection: 'row', marginTop: 12 }}>

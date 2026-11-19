@@ -12,12 +12,14 @@ import { transferPrice } from '../lib/pricing';
 import { startPayment } from '../lib/payments';
 import { C } from '../lib/theme';
 
+const AIRPORT_PAGE_SIZE = 8;
+
 // Airports are added by the admin (by country and city). The app calculates the route; the guest only sees the total price.
 export default function AirportTransfer({ navigation }) {
-  const { session } = useAuth();
+  const { session, formatMoney } = useAuth();
   const [dir, setDir] = useState('from');
   const [airports, setAirports] = useState([]); const [airport, setAirport] = useState(null); const [place, setPlace] = useState(null);
-  const [country, setCountry] = useState(''); const [q, setQ] = useState('');
+  const [country, setCountry] = useState(''); const [q, setQ] = useState(''); const [page, setPage] = useState(0);
   const [vehicles, setVehicles] = useState([]); const [vid, setVid] = useState(null); const [pax, setPax] = useState(1);
   const [date, setDate] = useState(new Date()); const [time, setTime] = useState('12:00');
   const [km, setKm] = useState(null); const [busy, setBusy] = useState(false);
@@ -29,12 +31,19 @@ export default function AirportTransfer({ navigation }) {
   }, []);
 
   const countries = useMemo(() => [...new Set(airports.map((a) => a.country))], [airports]);
-  const grouped = useMemo(() => {
+  const filteredAirports = useMemo(() => {
     const s = q.trim().toLowerCase(); const g = {};
-    airports.filter((a) => (!country || a.country === country) && (!s || `${a.name} ${a.code || ''} ${a.city || ''}`.toLowerCase().includes(s)))
-      .forEach((a) => { const k = `${a.country}|${a.city || 'Other'}`; (g[k] = g[k] || []).push(a); });
-    return Object.entries(g);
+    return airports.filter((a) => (!country || a.country === country) && (!s || `${a.name} ${a.code || ''} ${a.city || ''}`.toLowerCase().includes(s)));
   }, [airports, country, q]);
+  const totalPages = Math.max(1, Math.ceil(filteredAirports.length / AIRPORT_PAGE_SIZE));
+  const grouped = useMemo(() => {
+    const groups = {};
+    filteredAirports.slice(page * AIRPORT_PAGE_SIZE, (page + 1) * AIRPORT_PAGE_SIZE)
+      .forEach((a) => { const k = `${a.country}|${a.city || 'Other'}`; (groups[k] = groups[k] || []).push(a); });
+    return Object.entries(groups);
+  }, [filteredAirports, page]);
+
+  useEffect(() => { setPage(0); }, [country, q]);
 
   const mine = async () => { const pos = await getPosition(); if (!pos) return; const info = await reverseInfo(pos.lat, pos.lng); setPlace({ lat: pos.lat, lng: pos.lng, label: info.label }); };
   const onMap = async () => { const r = await pickLocation(navigation, dir === 'from' ? 'Where should we drop you?' : 'Where should we pick you up?'); if (r) setPlace(r); };
@@ -76,7 +85,8 @@ export default function AirportTransfer({ navigation }) {
         {countries.length > 1 && <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <Chip label="All countries" active={!country} onPress={() => setCountry('')} />
           {countries.map((c) => <Chip key={c} label={c} active={country === c} onPress={() => setCountry(c)} />)}</ScrollView>}
-        <Input placeholder="Search airport, code or city" value={q} onChangeText={setQ} />
+        <Input placeholder="Search airport, code or city" value={q} onChangeText={(value) => { setPage(0); setQ(value); }} />
+        {filteredAirports.length > 0 && <Muted>{filteredAirports.length} airports · page {page + 1} of {totalPages}</Muted>}
         {grouped.map(([k, list]) => { const [ctry, city] = k.split('|'); return (
           <View key={k}>
             <Text style={{ fontWeight: '800', color: C.primary, marginTop: 8 }}>📍 {city}, {ctry}</Text>
@@ -85,7 +95,12 @@ export default function AirportTransfer({ navigation }) {
                 <Text style={{ fontWeight: '700' }}>{a.code ? `${a.code} · ` : ''}{a.name}</Text>{a.region ? <Muted>{a.region}</Muted> : null}</Card>))}
           </View>); })}
         {airports.length === 0 && <Muted>No airports yet. The admin adds them in Admin → Airports.</Muted>}
-        {airports.length > 0 && grouped.length === 0 && <Muted>No airport matches your search.</Muted>}
+        {airports.length > 0 && filteredAirports.length === 0 && <Muted>No airport matches your search.</Muted>}
+        {filteredAirports.length > AIRPORT_PAGE_SIZE && <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 8 }}>
+          <Btn style={{ flex: 1 }} kind="ghost" title="← Previous" disabled={page === 0} onPress={() => setPage((n) => Math.max(0, n - 1))} />
+          <Text style={{ paddingHorizontal: 10, fontWeight: '700' }}>{page + 1}/{totalPages}</Text>
+          <Btn style={{ flex: 1 }} kind="ghost" title="Next →" disabled={page + 1 >= totalPages} onPress={() => setPage((n) => Math.min(totalPages - 1, n + 1))} />
+        </View>}
 
         <H n={2} t={dir === 'from' ? 'Where to?' : 'Pickup place'} />
         <View style={{ flexDirection: 'row' }}>
@@ -111,11 +126,11 @@ export default function AirportTransfer({ navigation }) {
         {vehicles.map((x) => { const fits = x.max_passengers >= pax; const total = km != null ? transferPrice(x, km) : null; return (
           <Card key={x.id} onPress={() => fits && setVid(x.id)} style={{ marginHorizontal: 0, opacity: fits ? 1 : 0.4, borderWidth: 2, borderColor: vid === x.id ? C.primary : '#E5E7EB', backgroundColor: vid === x.id ? '#EAF3EE' : '#fff', flexDirection: 'row', alignItems: 'center' }}>
             <View style={{ flex: 1 }}><Text style={{ fontWeight: '800' }}>{x.name}</Text><Muted>Up to {x.max_passengers} passengers{fits ? '' : ' · too small for your group'}</Muted></View>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: C.primary }}>{total != null ? `$${total.toFixed(2)}` : '—'}</Text></Card>); })}
+            <Text style={{ fontSize: 18, fontWeight: '800', color: C.primary }}>{total != null ? formatMoney(total) : '—'}</Text></Card>); })}
         {km == null && <Muted>Choose the airport and place to see prices.</Muted>}
 
         <View style={{ marginVertical: 12, padding: 14, borderRadius: 14, backgroundColor: C.primary }}>
-          <Text style={{ color: '#fff', opacity: 0.9 }}>Total</Text><Text style={{ color: '#fff', fontSize: 28, fontWeight: '800' }}>${price.toFixed(2)}</Text></View>
+          <Text style={{ color: '#fff', opacity: 0.9 }}>Total</Text><Text style={{ color: '#fff', fontSize: 28, fontWeight: '800' }}>{formatMoney(price)}</Text></View>
         <Btn title={busy ? 'Please wait…' : 'Book & pay'} onPress={book} disabled={busy} />
         <View style={{ height: 30 }} />
       </View>

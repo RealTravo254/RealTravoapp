@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, TextInput, StyleSheet, ActivityIndicator,
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '../lib/theme';
 import { useWishlist } from '../lib/wishlist';
+import { useAuth } from '../lib/AuthContext';
 import ShareButton from './ShareButton';
 import Img from './Img';
 
@@ -57,9 +58,11 @@ export const Stepper = ({ label, value, onChange, min = 1, max = 99, suffix = ''
       <TouchableOpacity disabled={value >= max} onPress={() => onChange(value + 1)} style={dis(value >= max)}><Ionicons name="add" size={20} color={C.primary} /></TouchableOpacity>
     </View>);
 };
-const priceText = (p) => (p != null ? (Number(p) === 0 ? 'Free entry' : `from $${p}`) : '');
-export const ListingCard = ({ item, onPress }) => (
-  <Card onPress={onPress} style={{ padding: 0, overflow: 'hidden' }}>
+const priceText = (p, formatMoney) => (p != null ? (Number(p) === 0 ? 'Free entry' : `from ${formatMoney(p)}`) : '');
+export const ListingCard = ({ item, onPress }) => {
+  const { formatMoney } = useAuth();
+  return (
+    <Card onPress={onPress} style={{ padding: 0, overflow: 'hidden' }}>
     <View>
       <Img uri={item.cover} category={item.category} style={{ height: 150 }} />
       <SaveButton id={item.id} /><ShareButton item={item} />
@@ -69,14 +72,17 @@ export const ListingCard = ({ item, onPress }) => (
       <Muted>{item.category} · {item.region || item.country}</Muted>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
         <Text>⭐ {Number(item.rating_avg || 0).toFixed(1)} ({item.rating_count})</Text>
-        <Text style={{ fontWeight: '700', color: C.primary }}>{priceText(item.from_price)}</Text>
+        <Text style={{ fontWeight: '700', color: C.primary }}>{priceText(item.from_price, formatMoney)}</Text>
       </View>
     </View>
-  </Card>
-);
+    </Card>
+  );
+};
 // Compact card for the "Top rated" row
-export const MiniCard = ({ item, onPress }) => (
-  <TouchableOpacity onPress={onPress} style={{ width: 220, marginRight: 10, backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+export const MiniCard = ({ item, onPress }) => {
+  const { formatMoney } = useAuth();
+  return (
+    <TouchableOpacity onPress={onPress} style={{ width: 220, marginRight: 10, backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
     <View>
       <Img uri={item.cover} category={item.category} style={{ height: 110 }} />
       <SaveButton id={item.id} style={{ width: 30, height: 30, borderRadius: 15 }} />
@@ -84,10 +90,11 @@ export const MiniCard = ({ item, onPress }) => (
     <View style={{ padding: 10 }}>
       <Text numberOfLines={1} style={{ fontWeight: '700', color: C.text }}>{item.title}</Text>
       <Muted>{item.region || item.country}{item.distance_km != null ? ` · ${Math.round(item.distance_km)} km` : ''}</Muted>
-      <Text style={{ marginTop: 4 }}>⭐ {Number(item.rating_avg || 0).toFixed(1)}  <Text style={{ color: C.primary, fontWeight: '700' }}>{priceText(item.from_price)}</Text></Text>
+      <Text style={{ marginTop: 4 }}>⭐ {Number(item.rating_avg || 0).toFixed(1)}  <Text style={{ color: C.primary, fontWeight: '700' }}>{priceText(item.from_price, formatMoney)}</Text></Text>
     </View>
-  </TouchableOpacity>
-);
+    </TouchableOpacity>
+  );
+};
 const s = StyleSheet.create({
   btn: { backgroundColor: C.primary, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10, alignItems: 'center', marginVertical: 4 },
   ghost: { backgroundColor: 'transparent', borderWidth: 1, borderColor: C.primary },

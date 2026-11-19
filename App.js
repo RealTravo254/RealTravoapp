@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { createContext, useContext, useState } from 'react';
 import { View } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -71,6 +71,7 @@ try {
 } catch (x) {}
 
 const navRef = createNavigationContainerRef();
+const ExploreReadyContext = createContext(() => {});
 // Every stack page keeps clear of the phone's bottom/side safe areas (the native header handles the top)
 const safe = (Comp) => function Safe(props) {
   const i = useSafeAreaInsets();
@@ -81,6 +82,10 @@ const S = Object.fromEntries(Object.entries({ AuthScreen, CompleteProfile, Notif
 // one crashing screen never closes the whole app
 const guard = (Comp) => function Guard(props) { return <ErrorBoundary><Comp {...props} /></ErrorBoundary>; };
 const G = { Explore: guard(Explore), MapScreen: guard(MapScreen), Wishlist: guard(Wishlist), MyTrips: guard(MyTrips), HostHome: guard(HostHome), ProfileScreen: guard(ProfileScreen), ListingDetail: guard(ListingDetail) };
+function ExploreTab(props) {
+  const onInitialLoadComplete = useContext(ExploreReadyContext);
+  return <G.Explore {...props} onInitialLoadComplete={onInitialLoadComplete} />;
+}
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 const linking = { prefixes: ['travelapp://'], config: { screens: { ListingDetail: 'listing/:id', BookingForm: 'form/:slug' } } };
@@ -97,7 +102,7 @@ function Tabs() {
     <Tab.Navigator screenOptions={{ headerShown: false, tabBarActiveTintColor: '#8FE0B5', tabBarInactiveTintColor: '#A9BFB5',
       tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       tabBarStyle: { backgroundColor: C.deep, borderTopWidth: 0, height: 56 + Math.max(insets.bottom, 6), paddingTop: 6, paddingBottom: Math.max(insets.bottom, 6) } }}>
-      <Tab.Screen name="Explore" component={G.Explore} options={{ title: 'Home', tabBarIcon: tabIcon('home') }} />
+      <Tab.Screen name="Explore" component={ExploreTab} options={{ title: 'Home', tabBarIcon: tabIcon('home') }} />
       <Tab.Screen name="Map" component={G.MapScreen} options={{ title: tr('map'), tabBarIcon: tabIcon('map') }} />
       <Tab.Screen name="Saved" component={G.Wishlist} options={{ title: 'Favourite', tabBarIcon: tabIcon('heart') }} />
       <Tab.Screen name="Trips" component={G.MyTrips} options={{ title: 'My bookings', tabBarIcon: tabIcon('ticket') }} />
@@ -123,6 +128,7 @@ function Root() {
       <Stack.Screen name="CompleteProfile" component={S.CompleteProfile} options={{ title: 'Complete your profile', ...none }} />
       <Stack.Screen name="Notifications" component={S.Notifications} options={{ title: 'Notifications', ...none }} />
       <Stack.Screen name="ListingDetail" component={G.ListingDetail} options={{ title: '' }} />
+      <Stack.Screen name="BookingDetail" component={S.BookingDetail} options={{ title: 'Booking details' }} />
       <Stack.Screen name="Booking" component={S.BookingScreen} options={{ title: 'Book', ...bookingHeader }} />
       <Stack.Screen name="BookingDetail" component={S.BookingDetail} options={{ title: 'Booking details' }} />
       <Stack.Screen name="EditBooking" component={S.EditBooking} options={{ title: 'Edit booking', ...bookingHeader }} />
@@ -161,11 +167,13 @@ export default function App() {
   const [splash, setSplash] = useState(true);
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <WishlistProvider>
-          <NavigationContainer ref={navRef} linking={linking}><StatusBar style="dark" /><MenuProvider navRef={navRef}><ErrorBoundary><Root /></ErrorBoundary></MenuProvider></NavigationContainer>
-        </WishlistProvider>
-      </AuthProvider>
+      <ExploreReadyContext.Provider value={() => setSplash(false)}>
+        <AuthProvider>
+          <WishlistProvider>
+            <NavigationContainer ref={navRef} linking={linking}><StatusBar style="dark" /><MenuProvider navRef={navRef}><ErrorBoundary><Root /></ErrorBoundary></MenuProvider></NavigationContainer>
+          </WishlistProvider>
+        </AuthProvider>
+      </ExploreReadyContext.Provider>
       {splash && <Splash onDone={() => setSplash(false)} />}
       {!splash && <PermissionPrompt />}
       {!splash && <UpdatePrompt />}

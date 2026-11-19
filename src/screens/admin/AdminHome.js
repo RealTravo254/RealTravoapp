@@ -116,9 +116,15 @@ function Settings() {
   const [s, setS] = useState(null);
   useEffect(() => { supabase.from('app_settings').select('*').eq('id', 1).single().then(({ data }) => setS(data)); }, []);
   if (!s) return null;
-  const save = async () => { const { error } = await supabase.from('app_settings').update({ commission_percent: Number(s.commission_percent), subscription_price: Number(s.subscription_price), subscription_price_kes: Number(s.subscription_price_kes), unpaid_hold_hours: Number(s.unpaid_hold_hours), latest_version: s.latest_version, min_version: s.min_version, update_url: s.update_url || null, update_message: s.update_message || null, urgent_response_hours: Number(s.urgent_response_hours), normal_response_hours: Number(s.normal_response_hours), custom_cancel_fee_percent: Number(s.custom_cancel_fee_percent ?? 20) }).eq('id', 1); Alert.alert(error ? error.message : 'Saved'); };
+  const save = async () => {
+    const rate = Number(s.kes_per_usd);
+    if (!Number.isFinite(rate) || rate <= 0) return Alert.alert('Exchange rate', 'Enter how many Kenyan shillings equal one US dollar.');
+    const { error } = await supabase.from('app_settings').update({ commission_percent: Number(s.commission_percent), subscription_price: Number(s.subscription_price), subscription_price_kes: Number(s.subscription_price_kes), unpaid_hold_hours: Number(s.unpaid_hold_hours), latest_version: s.latest_version, min_version: s.min_version, update_url: s.update_url || null, update_message: s.update_message || null, urgent_response_hours: Number(s.urgent_response_hours), normal_response_hours: Number(s.normal_response_hours), custom_cancel_fee_percent: Number(s.custom_cancel_fee_percent ?? 20), kes_per_usd: rate }).eq('id', 1);
+    Alert.alert(error ? error.message : 'Saved');
+  };
   return <ScrollView contentContainerStyle={{ padding: 12 }}>
     <Label>Commission % per booking</Label><Input keyboardType="decimal-pad" value={String(s.commission_percent)} onChangeText={(v) => setS({ ...s, commission_percent: v })} />
+    <Label>Exchange rate (KES per 1 USD)</Label><Input keyboardType="decimal-pad" value={String(s.kes_per_usd ?? '')} onChangeText={(v) => setS({ ...s, kes_per_usd: v })} />
     <Label>Host subscription price (KES, paid by M-Pesa)</Label><Input keyboardType="decimal-pad" value={String(s.subscription_price_kes ?? '')} onChangeText={(v) => setS({ ...s, subscription_price_kes: v })} />
     <Label>App update — newest version (e.g. 1.0.3)</Label><Input autoCapitalize="none" value={s.latest_version || ''} onChangeText={(v) => setS({ ...s, latest_version: v })} />
     <Label>Oldest version still allowed (users below this must update)</Label><Input autoCapitalize="none" value={s.min_version || ''} onChangeText={(v) => setS({ ...s, min_version: v })} />

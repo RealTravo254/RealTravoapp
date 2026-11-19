@@ -1,22 +1,29 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  View, Text, Alert, ScrollView, Animated, Easing, Linking, Vibration,
+  View, Text, Alert, ScrollView, FlatList, Animated, Easing, Linking, Vibration, AppState,
   TouchableOpacity, StyleSheet, useWindowDimensions, ActivityIndicator,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../lib/AuthContext';
+import { isNetworkError, markCheckinUsed, pendingCheckinCount, readCheckinCache, refreshCheckinCache, syncPendingCheckins } from '../../lib/offlineCheckins';
 import { C } from '../../lib/theme';
 
 const DIM = 'rgba(6, 18, 13, 0.72)';
 const ACCENT = '#8FE0B5';
 
 export default function ScanQR() {
+  const { session } = useAuth();
   const [perm, requestPerm] = useCameraPermissions();
   const [res, setRes] = useState(null);
   const [busy, setBusy] = useState(false);
   const [torch, setTorch] = useState(false);
+  const [view, setView] = useState('camera');
+  const [cachedBookings, setCachedBookings] = useState([]);
+  const [pendingSync, setPendingSync] = useState(0);
+  const [syncError, setSyncError] = useState('');
   const locked = useRef(false);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -35,6 +42,70 @@ export default function ScanQR() {
     loop.start();
     return () => loop.stop();
   }, [res, line]);
+
+  useEffect(() => {
+    if (!session?.user?.id) return undefined;
+    let active = true;
+    const refresh = async () => {
+      try {
+        await syncPendingCheckins(session.user.id);
+        const [bookings, pending] = await Promise.all([
+          refreshCheckinCache(session.user.id),
+          pendingCheckinCount(session.user.id),
+        ]);
+        if (active) { setCachedBookings(bookings); setPendingSync(pending); setSyncError(''); }
+      } catch (e) {
+        try {
+          const [bookings, pending] = await Promise.all([
+            readCheckinCache(session.user.id),
+            pendingCheckinCount(session.user.id),
+          ]);
+          if (active) { setCachedBookings(bookings); setPendingSync(pending); }
+        } catch (cacheError) {
+          console.warn('Could not read offline check-in data:', cacheError.message);
+        }
+        if (!isNetworkError(e)) {
+          console.warn('Could not sync offline check-ins:', e.message);
+          if (active) setSyncError(e.message);
+        }
+      }
+    };
+    readCheckinCache(session.user.id).then((bookings) => { if (active) setCachedBookings(bookings); })
+      .catch((e) => console.warn('Could not read offline check-in data:', e.message));
+    refresh();
+    const timer = setInterval(refresh, 30000);
+    const appState = AppState.addEventListener('change', (state) => { if (state === 'active') refresh(); });
+    return () => { active = false; clearInterval(timer); appState.remove(); };
+  }, [session?.user?.id]);
+
+  if (view === 'unused') {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#F4F7F5', padding: 16 }}>
+        <Text style={{ color: C.text, fontSize: 22, fontWeight: '800' }}>Unused bookings</Text>
+        <Text style={{ color: C.muted, marginTop: 4 }}>
+          {pendingSync ? `${pendingSync} check-in${pendingSync === 1 ? '' : 's'} waiting to sync.` : 'Only unused, paid bookings cached on this device are shown.'}
+        </Text>
+        {!!syncError && <Text style={{ color: '#B42318', marginTop: 8 }}>Sync needs attention: {syncError}</Text>}
+        <TouchableOpacity onPress={() => setView('camera')} style={s.primaryBtn}>
+          <Ionicons name="qr-code-outline" size={18} color="#fff" />
+          <Text style={s.primaryBtnText}>Open scanner</Text>
+        </TouchableOpacity>
+        <FlatList
+          data={cachedBookings}
+          keyExtractor={(item) => item.id}
+          ListEmptyComponent={<Text style={{ textAlign: 'center', color: C.muted, marginTop: 32 }}>No unused bookings saved yet. Connect to the internet to refresh.</Text>}
+          renderItem={({ item }) => (
+            <View style={s.resultCard}>
+              <Text style={s.guestName}>{item.listings?.title || 'Booking'}</Text>
+              <Text style={s.guestSub}>{item.start_date}{item.end_date && item.end_date !== item.start_date ? ` to ${item.end_date}` : ''}</Text>
+              <Row icon="people-outline" label="Guests" value={String(item.guests)} />
+              <Row icon="card-outline" label="Payment" value={item.payment_status} />
+            </View>
+          )}
+        />
+      </View>
+    );
+  }
 
   // ---------- 1. permission still loading ----------
   if (!perm) {
@@ -73,9 +144,30 @@ export default function ScanQR() {
             <Text style={s.primaryBtnText}>Allow camera</Text>
           </TouchableOpacity>
         )}
+        <TouchableOpacity onPress={() => setView('unused')} style={{ padding: 14 }}>
+          <Text style={{ color: C.primary, fontWeight: '700' }}>View unused bookings saved on this device</Text>
+        </TouchableOpacity>
       </View>
     );
   }
+
+  const showOfflineBooking = async (token) => {
+    const booking = await markCheckinUsed(session.user.id, token, true);
+    if (!booking) {
+      Alert.alert('Booking not available offline', 'This QR code is not in this device’s saved list of unused bookings. Connect to the internet and refresh bookings.');
+      return false;
+    }
+    setCachedBookings(await readCheckinCache(session.user.id));
+    setPendingSync(await pendingCheckinCount(session.user.id));
+    setTorch(false);
+    setRes({
+      booking: { ...booking, checked_in_at: new Date().toISOString() },
+      items: booking.booking_items || [],
+      guest: {},
+      offline: true,
+    });
+    return true;
+  };
 
   // ---------- scan handler ----------
   const onScan = async ({ data }) => {
@@ -84,15 +176,32 @@ export default function ScanQR() {
     setBusy(true);
     Vibration.vibrate(60);
     try {
-      const { data: r, error } = await supabase.rpc('scan_qr', { p_token: data });
+      const { data: r, error } = await supabase.rpc('scan_qr', { p_token: data.trim() });
       if (error) {
+        if (isNetworkError(error)) {
+          await showOfflineBooking(data.trim());
+          setBusy(false);
+          return;
+        }
+        if (String(error.message).toLowerCase().includes('already checked in')) {
+          await markCheckinUsed(session.user.id, data.trim());
+          setCachedBookings(await readCheckinCache(session.user.id));
+        }
         Alert.alert('Invalid QR code', error.message, [{ text: 'Scan again', onPress: () => { locked.current = false; setBusy(false); } }]);
         return;
       }
+      await markCheckinUsed(session.user.id, data.trim());
+      setCachedBookings(await readCheckinCache(session.user.id));
       setTorch(false);
       setRes(r);
       setBusy(false);
     } catch (e) {
+      if (isNetworkError(e)) {
+        try { await showOfflineBooking(data.trim()); }
+        catch (cacheError) { Alert.alert('Could not record check-in offline', cacheError.message); }
+        setBusy(false);
+        return;
+      }
       Alert.alert('Could not check the code', String(e && e.message ? e.message : e), [
         { text: 'Scan again', onPress: () => { locked.current = false; setBusy(false); } },
       ]);
@@ -118,6 +227,7 @@ export default function ScanQR() {
               <Ionicons name="checkmark" size={30} color="#fff" />
             </View>
             <Text style={s.okTitle}>Valid booking</Text>
+            {res.offline && <Text style={s.offlineNotice}>Saved on this device. It will sync when online.</Text>}
             <Text style={s.guestName}>{[g.first_name, g.last_name].filter(Boolean).join(' ') || 'Guest'}</Text>
             {!!g.country && <Text style={s.guestSub}>{g.country}</Text>}
 
@@ -202,6 +312,9 @@ export default function ScanQR() {
         </View>
 
         <View style={{ flex: 1, backgroundColor: DIM, alignItems: 'center', paddingTop: 26, paddingBottom: insets.bottom + 16 }}>
+          <TouchableOpacity onPress={() => setView('unused')} style={{ marginBottom: 14 }}>
+            <Text style={{ color: '#fff', fontWeight: '700' }}>Unused bookings on this device ({cachedBookings.length})</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setTorch((t) => !t)}
             activeOpacity={0.85}
@@ -242,6 +355,7 @@ const s = StyleSheet.create({
   },
   permTitle: { fontSize: 22, fontWeight: '800', color: C.text, marginBottom: 8, textAlign: 'center' },
   permText: { fontSize: 15, lineHeight: 22, color: '#5F6B66', textAlign: 'center', marginBottom: 12 },
+  offlineNotice: { color: '#8A5A00', textAlign: 'center', fontWeight: '700', marginVertical: 8 },
   primaryBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: C.primary, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 14, marginTop: 10,

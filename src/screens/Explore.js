@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, FlatList, ScrollView, TouchableOpacity, Text, Keyboard, TextInput } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Localization from 'expo-localization';
@@ -34,7 +34,7 @@ const ServiceCard = ({ icon, title, sub, color, onPress, style }) => (
   </TouchableOpacity>
 );
 
-export default function Explore({ navigation, route }) {
+export default function Explore({ navigation, route, onInitialLoadComplete }) {
   const { ensureLogin, profile } = useAuth();
   const [text, setText] = useState(''); const [q, setQ] = useState(''); const [cat, setCat] = useState(null);
   const [rows, setRows] = useState([]); const [page, setPage] = useState(0);
@@ -43,33 +43,58 @@ export default function Explore({ navigation, route }) {
   const [recent, setRecent] = useState([]); const [popular, setPopular] = useState([]); const [locs, setLocs] = useState([]); const [places, setPlaces] = useState([]);
   const [place, setPlace] = useState(null); const [top, setTop] = useState(null); const [where, setWhere] = useState('');
   const [locTick, setLocTick] = useState(0);
+  const [topLoaded, setTopLoaded] = useState(false);
+  const initialLoadReported = useRef(false);
   useEffect(() => on('location-granted', () => setLocTick((t) => t + 1)), []);
   useEffect(() => { if (route?.params?.cat !== undefined) setCat(route.params.cat); }, [route?.params?.cat]); // menu shortcuts
 
   // ---------- top rated (all categories) near the user's location, else in the user's country ----------
-  useEffect(() => { (async () => {
-    const pos = await getPosition({ silent: true });
-    if (pos) { setPlace(pos); return; }
-    let country = profile?.country;
-    if (!country) {
-      const code = Localization.getLocales?.()[0]?.regionCode;
-      if (code) { const { data } = await supabase.from('countries').select('name').eq('code', code).maybeSingle(); country = data?.name; }
-    }
-    setPlace(country ? { country } : {});
-  })(); }, [profile?.country, locTick]);
+  useEffect(() => { let active = true;
+    (async () => {
+      try {
+        const pos = await getPosition({ silent: true });
+        if (pos) { if (active) setPlace(pos); return; }
+        let country = profile?.country;
+        if (!country) {
+          const code = Localization.getLocales?.()[0]?.regionCode;
+          if (code) { const { data } = await supabase.from('countries').select('name').eq('code', code).maybeSingle(); country = data?.name; }
+        }
+        if (active) setPlace(country ? { country } : {});
+      } catch (e) {
+        if (active) setPlace(profile?.country ? { country: profile.country } : {});
+      }
+    })();
+    return () => { active = false; };
+  }, [profile?.country, locTick]);
 
   useEffect(() => { (async () => {
     if (!place) return;
-    if (place.lat != null) {
-      const { data } = await supabase.rpc('top_rated_near', { p_lat: place.lat, p_lng: place.lng, p_radius_km: 300, lim: 80 });
-      if (data?.length) { setTop(data); setWhere('near you'); return; }
+    try {
+      if (place.lat != null) {
+        const { data, error } = await supabase.rpc('top_rated_near', { p_lat: place.lat, p_lng: place.lng, p_radius_km: 300, lim: 80 });
+        if (error) throw error;
+        if (data?.length) { setTop(data); setWhere('near you'); return; }
+      }
+      const country = place.country || profile?.country;
+      let query = supabase.from('listing_cards').select('*').order('rating_avg', { ascending: false }).limit(80);
+      if (country) query = query.eq('country', country);
+      const { data, error } = await query;
+      if (error) throw error;
+      setTop(data || []); setWhere(country ? `in ${country}` : '');
+    } catch (e) {
+      console.warn('Could not load top-rated listings:', e.message);
+      setTop([]);
+    } finally {
+      setTopLoaded(true);
     }
-    const country = place.country || profile?.country;
-    let query = supabase.from('listing_cards').select('*').order('rating_avg', { ascending: false }).limit(80);
-    if (country) query = query.eq('country', country);
-    const { data } = await query;
-    setTop(data || []); setWhere(country ? `in ${country}` : '');
   })(); }, [place]);
+
+  useEffect(() => {
+    if (!loading && topLoaded && !initialLoadReported.current) {
+      initialLoadReported.current = true;
+      onInitialLoadComplete?.();
+    }
+  }, [loading, topLoaded, onInitialLoadComplete]);
 
   // ---------- search suggestions ----------
   useEffect(() => { if (!focus) return;
@@ -200,7 +225,7 @@ export default function Explore({ navigation, route }) {
       </View>
       <View style={{ flexDirection: 'row', paddingHorizontal: 12, marginTop: 4 }}>
         <ServiceCard style={{ marginRight: 6 }} color="#0B4F6C" icon="car-sport" title={tr('transfer')} sub="Airport pickup & drop-off" onPress={() => go('AirportTransfer')} />
-        <ServiceCard style={{ marginLeft: 6 }} color="#E8890C" icon="map" title={tr('custom')} sub="Build your own trip" onPress={() => go('TripBuilder')} />
+        <ServiceCard style={{ marginLeft: 6 }} color="#E8890C" icon="map" title={tr('custom')} sub="Build your own trip" onPress={() => go('CustomTrip')} />
       </View>
       {rails()}
       <Text style={{ fontSize: 18, fontWeight: '800', margin: 12, marginBottom: 0, color: C.text }}>{q ? `Results for “${q}”` : cat ? tr(cat) : 'All places'}</Text>

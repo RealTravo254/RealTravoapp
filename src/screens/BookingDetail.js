@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { View, Text, ScrollView, Alert, TouchableOpacity, StyleSheet } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
@@ -7,6 +8,7 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import QRCode from 'react-native-qrcode-svg';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/AuthContext';
 import { Btn, Muted, Loader } from '../components/ui';
 import { startPayment } from '../lib/payments';
 import { tr } from '../i18n';
@@ -72,12 +74,15 @@ const Items = ({ items }) => (items.length === 0 ? <Muted>No items listed.</Mute
 
 export default function BookingDetail({ route, navigation }) {
   const { id } = route.params;
+  const { session } = useAuth();
   const [d, setD] = useState(undefined);
   const [err, setErr] = useState(null);
+  const [offline, setOffline] = useState(false);
   const [busy, setBusy] = useState(false);
   const qrRef = useRef(null);
 
   const load = useCallback(async () => {
+    const key = `booking-detail:${session?.user?.id}:${id}`;
     try {
       const { data: b, error } = await supabase.from('bookings').select('*, listings(*), booking_items(*), booking_dropoffs(*)').eq('id', id).single();
       if (error) throw error;
@@ -85,9 +90,17 @@ export default function BookingDetail({ route, navigation }) {
       let pkg = null; let veh = null;
       if (b.package_id) pkg = (await supabase.from('trip_packages').select('*').eq('id', b.package_id).maybeSingle()).data;
       if (pkg?.vehicle_id) veh = (await supabase.from('vehicles').select('*').eq('id', pkg.vehicle_id).maybeSingle()).data;
-      setD({ b, kids: kids || [], pkg, veh }); setErr(null);
-    } catch (e) { setErr(e.message); setD(null); }
-  }, [id]);
+      const saved = { b, kids: kids || [], pkg, veh };
+      setD(saved); setErr(null); setOffline(false);
+      if (session?.user?.id) AsyncStorage.setItem(key, JSON.stringify(saved)).catch((storageError) => console.warn('Could not cache booking details:', storageError.message));
+    } catch (e) {
+      const cached = session?.user?.id ? await AsyncStorage.getItem(key) : null;
+      if (cached) {
+        try { setD(JSON.parse(cached)); setErr(null); setOffline(true); }
+        catch (cacheError) { setErr(cacheError.message); setD(null); }
+      } else { setErr(e.message); setD(null); }
+    }
+  }, [id, session?.user?.id]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   if (d === undefined) return <Loader />;
@@ -106,7 +119,7 @@ export default function BookingDetail({ route, navigation }) {
   const grand = pkg && pkg.total != null ? Number(pkg.total) : mainTotal + addonTotal + transfer;
   const paid = b.payment_status === 'paid';
   const unpaid = b.payment_status === 'unpaid' && b.status === 'pending';
-  const showQR = ['accepted', 'completed'].includes(b.status) && ['hotel', 'campsite', 'event', 'attraction'].includes(L.category) && !!b.qr_token;
+  const showQR = ['accepted', 'completed'].includes(b.status) && !b.checked_in_at && ['hotel', 'campsite', 'event', 'attraction'].includes(L.category) && !!b.qr_token;
   const hoursLeft = (new Date(`${String(b.start_date).slice(0, 10)}T${(b.start_time || '09:00').slice(0, 5)}:00`) - Date.now()) / 3600000;
 
   const openListing = (lid) => navigation.navigate('ListingDetail', { id: lid });
@@ -136,6 +149,7 @@ export default function BookingDetail({ route, navigation }) {
   return (
     <ScrollView style={{ backgroundColor: '#F4F7F5' }} contentContainerStyle={{ padding: 12, paddingBottom: 40 }}>
       {/* summary */}
+      {offline && <Text style={s.notice}>Showing the booking saved on this device. Reconnect to refresh its status.</Text>}
       <View style={s.top}>
         <Text style={s.topTitle}>{L.title || 'Booking'}</Text>
         <Text style={s.topSub}>{L.category ? `${L.category} · ` : ''}Ref {String(b.id).slice(0, 8).toUpperCase()}{b.parent_booking_id ? ' · add-on' : ''}</Text>
