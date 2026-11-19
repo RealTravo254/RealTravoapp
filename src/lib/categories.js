@@ -4,7 +4,6 @@ export const CATS = [
   { key: 'attraction', icon: 'ticket-outline', color: '#E8890C' },
   { key: 'airbnb', icon: 'home-outline', color: '#E0455C' },
   { key: 'activity', icon: 'bicycle-outline', color: '#8E44AD' },
-  { key: 'event', icon: 'musical-notes-outline', color: '#D6409F' },
   { key: 'guide', icon: 'compass-outline', color: '#0E9AA7' },
 ];
 export const catColor = (k) => CATS.find((c) => c.key === k)?.color || '#1B4432';

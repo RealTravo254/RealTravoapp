@@ -15,6 +15,7 @@ import { C } from '../lib/theme';
 
 const CANCELLED = ['cancelled', 'declined'];
 const dropOf = (b) => [].concat(b.booking_dropoffs || [])[0]?.dropoff_location;
+const pkgOf = (b) => [].concat(b.trip_packages || [])[0] || null;
 const TABS = [
   ['upcoming', '📅 Upcoming', 'No upcoming bookings.'],
   ['pending', '⏳ Pending', 'No pending bookings.'],
@@ -37,23 +38,28 @@ const STATUS_STYLE = {
 };
 const statusStyle = (st) => STATUS_STYLE[st] || { label: String(st || '-'), color: '#4A5A52', bg: '#EEF2EF' };
 
-function TripRow({ b, navigation, onPay }) {
+function TripRow({ b, navigation, onPay, onCancel, feePct }) {
   const [open, setOpen] = useState(false);               // pickup and return stays closed until tapped
   const st = statusStyle(b.status); const a = dayParts(b.start_date);
   const e = !same(b.start_date, b.end_date) ? dayParts(b.end_date) : null;
   const unpaid = b.payment_status === 'unpaid' && b.status === 'pending';
   const paid = b.payment_status === 'paid';
   const cat = b.listings?.category; const drop = dropOf(b);
-  const hasTransport = !!(b.pickup_location || drop || b.return_date);
+  const pkg = pkgOf(b); const custom = !!pkg?.is_custom;
+  const gone = CANCELLED.includes(b.status);
+  const canCancel = custom && !gone && b.status !== 'completed' && String(b.start_date).slice(0, 10) > ymd(new Date());
+  const fee = paid ? Math.round(Number(b.total) * feePct) / 100 : 0;
+  const tripPickup = custom && pkg?.trip_type ? pkg : null;
+  const hasTransport = !!(b.pickup_location || drop || b.return_date || tripPickup);
   return (
-    <Card style={{ paddingVertical: 10 }}>
+    <Card style={{ paddingVertical: 10, opacity: gone ? 0.75 : 1 }}>
       <TouchableOpacity activeOpacity={0.8} style={s.row} onPress={() => navigation.navigate('BookingDetail', { id: b.id })}>
         <View style={s.dateBox}>
           <Text style={s.dateDay}>{a.day}</Text><Text style={s.dateMon}>{a.mon}</Text>
           {e && <Text style={s.dateTo}>to {e.day} {e.mon}</Text>}
         </View>
         <View style={{ flex: 1, marginHorizontal: 10 }}>
-          <Text style={s.title} numberOfLines={1}>{b.listings?.title || 'Booking'}</Text>
+          <Text style={[s.title, gone && { textDecorationLine: 'line-through' }]} numberOfLines={1}>{b.listings?.title || 'Booking'}</Text>
           <View style={s.metaRow}>
             <Ionicons name={ICONS[cat] || 'location-outline'} size={13} color="#6B7A72" />
             <Text style={s.meta} numberOfLines={1}>
@@ -63,6 +69,7 @@ function TripRow({ b, navigation, onPay }) {
           <View style={s.tags}>
             <View style={[s.tag, { backgroundColor: st.bg }]}><Text style={[s.tagText, { color: st.color }]}>{st.label}</Text></View>
             <View style={[s.tag, { backgroundColor: paid ? '#E6F4EC' : '#FEF3E2' }]}><Text style={[s.tagText, { color: paid ? '#1B7F4B' : '#B45309' }]}>{paid ? 'Paid' : 'Unpaid'}</Text></View>
+            {custom && <View style={[s.tag, { backgroundColor: '#E8F0FB' }]}><Text style={[s.tagText, { color: '#1D5FA8' }]}>🧳 Custom trip</Text></View>}
             {!!b.parent_booking_id && <View style={s.tagGrey}><Text style={s.tagGreyText}>Add-on</Text></View>}
             {!!b.urgent && <View style={[s.tag, { backgroundColor: '#FDECEA' }]}><Text style={[s.tagText, { color: '#B42318' }]}>Urgent</Text></View>}
           </View>
@@ -73,8 +80,17 @@ function TripRow({ b, navigation, onPay }) {
         </View>
       </TouchableOpacity>
 
+      {gone && custom && (Number(b.cancel_fee) > 0 || Number(b.refund_due) > 0) && (
+        <Text style={s.cancelInfo}>Cancellation fee {money(b.cancel_fee)}{Number(b.refund_due) > 0 ? ` · refund due ${money(b.refund_due)}` : ''}</Text>)}
+
       {unpaid && !!b.pay_by && <Muted style={{ marginTop: 6 }}>⏳ Pay before {new Date(b.pay_by).toLocaleString()} or it is cancelled</Muted>}
       {unpaid && <Btn title={b.package_id ? 'Pay now (whole trip)' : 'Pay now'} onPress={() => onPay(b)} />}
+
+      {canCancel && (
+        <View style={{ marginTop: 6 }}>
+          <Btn kind="danger" title={paid ? `Cancel this item (fee ${money(fee)})` : 'Cancel this item'} onPress={() => onCancel(b, fee)} />
+          <Muted style={{ textAlign: 'center' }}>The whole trip cannot be cancelled. Only single items. The other items stay booked.</Muted>
+        </View>)}
 
       {hasTransport && (
         <View style={s.transport}>
@@ -87,6 +103,7 @@ function TripRow({ b, navigation, onPay }) {
               {b.pickup_location ? <Muted>📍 Pickup: {b.pickup_location}{b.pickup_time ? ` at ${String(b.pickup_time).slice(0, 5)}` : ''}</Muted> : null}
               {drop ? <Muted>🏁 Drop-off: {drop}</Muted> : null}
               {b.return_date ? <Muted>↩️ Return: {b.return_date}{b.return_time ? ` at ${String(b.return_time).slice(0, 5)}` : ''}</Muted> : null}
+              {tripPickup ? <Muted>📍 Trip pickup: {tripPickup.pickup_location}{tripPickup.pickup_time ? ` · ${new Date(tripPickup.pickup_time).toLocaleString()}` : ''}{tripPickup.trip_type === 'round' ? ' · with return' : ''}</Muted> : null}
             </View>
           )}
         </View>
@@ -103,7 +120,7 @@ export default function MyTrips({ navigation, route }) {
   const [to, setTo] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 30); return d; });
   const [rows, setRows] = useState([]); const [page, setPage] = useState(0); const [more, setMore] = useState(false);
   const [loading, setLoading] = useState(true); const [offline, setOffline] = useState(false);
-  const [transfers, setTransfers] = useState([]);
+  const [transfers, setTransfers] = useState([]); const [feePct, setFeePct] = useState(20);
   const changeTab = (k) => { setPage(0); setTab(k); };
   const changeWhen = (k) => { setPage(0); setWhen(k); };
   useEffect(() => { if (route?.params?.tab) { setPage(0); setTab(route.params.tab); } }, [route?.params?.tab, route?.params?.ts]);
@@ -114,7 +131,7 @@ export default function MyTrips({ navigation, route }) {
     const key = `bookings:${session.user.id}:${tab}:${page}:${when}:${when === 'range' ? ymd(from) + ymd(to) : ''}`;
     try {
       const today = ymd(new Date());
-      let q = supabase.from('bookings').select('*, listings(title,category,photos), booking_items(*), booking_dropoffs(*)').eq('user_id', session.user.id);
+      let q = supabase.from('bookings').select('*, listings(title,category,photos), booking_items(*), booking_dropoffs(*), trip_packages(is_custom,trip_type,pickup_location,pickup_time)').eq('user_id', session.user.id);
       if (tab === 'pending') q = q.eq('status', 'pending');
       else if (tab === 'upcoming') q = q.eq('status', 'accepted').gte('end_date', today);
       else if (tab === 'completed') q = q.or(`status.eq.completed,and(status.eq.accepted,end_date.lt.${today})`);
@@ -130,6 +147,7 @@ export default function MyTrips({ navigation, route }) {
       setRows(list); setMore(hasMore); setOffline(false);
       AsyncStorage.setItem(key, JSON.stringify({ list, hasMore })); // copy kept on the phone
       supabase.from('airport_transfers').select('*').eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(5).then(({ data: t }) => setTransfers(t || []));
+      supabase.from('app_settings').select('custom_cancel_fee_percent').eq('id', 1).maybeSingle().then(({ data: st }) => st && setFeePct(Number(st.custom_cancel_fee_percent ?? 20)));
       refresh();
     } catch (e) {
       const c = await AsyncStorage.getItem(key);
@@ -140,6 +158,20 @@ export default function MyTrips({ navigation, route }) {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const pay = async (b) => { try { const p = await startPayment(b.package_id ? { purpose: 'package', packageId: b.package_id } : { purpose: 'booking', bookingId: b.id }); navigation.navigate('Pay', { url: p.authorization_url }); } catch (e) { Alert.alert('Error', e.message); } };
+
+  const cancelItem = (b, fee) => {
+    const paid = b.payment_status === 'paid';
+    const msg = `${b.listings?.title}\n\n` + (paid
+      ? `Cancellation fee: ${money(fee)} (${feePct}%)\nYou get back: ${money(Number(b.total) - fee)}`
+      : 'This item is not paid yet, so there is no fee.') + '\n\nThe other items in your trip stay booked.';
+    Alert.alert('Cancel this item?', msg, [
+      { text: 'Keep it' },
+      { text: 'Cancel item', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.rpc('cancel_package_item', { p_booking: b.id });
+        if (error) Alert.alert('Could not cancel', error.message); else load();
+      } },
+    ]);
+  };
 
   if (!session) return (
     <View style={{ flex: 1 }}>
@@ -181,7 +213,7 @@ export default function MyTrips({ navigation, route }) {
         ListHeaderComponent={tab === 'upcoming' && transfers.length ? (<View><Text style={{ fontWeight: '800', fontSize: 16, margin: 12, marginBottom: 0 }}>✈️ Airport transfers</Text>{transfers.map((t) => (<Card key={t.id}><Text style={{ fontWeight: '700' }}>{t.pickup} → {t.dropoff}</Text><Muted>{new Date(t.pickup_time).toLocaleString()} · {t.passengers} passengers · ${Number(t.price).toFixed(2)}</Muted><Text>Payment: {t.payment_status}</Text></Card>))}<Text style={{ fontWeight: '800', fontSize: 16, margin: 12, marginBottom: 0 }}>🏨 Bookings</Text></View>) : null}
         ListEmptyComponent={<Muted style={{ textAlign: 'center', margin: 30 }}>{when === 'all' ? emptyText : 'No bookings for these dates.'}</Muted>}
         ListFooterComponent={<Pager page={page} setPage={setPage} hasMore={more} />}
-        renderItem={({ item: b }) => <TripRow b={b} navigation={navigation} onPay={pay} />} />}
+        renderItem={({ item: b }) => <TripRow b={b} navigation={navigation} onPay={pay} onCancel={cancelItem} feePct={feePct} />} />}
     </View>
   );
 }
@@ -204,6 +236,7 @@ const s = StyleSheet.create({
   tagGrey: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginRight: 6, marginBottom: 2, backgroundColor: '#EEF2EF' },
   tagGreyText: { fontSize: 11.5, fontWeight: '600', color: '#4A5A52' },
   price: { fontSize: 16, fontWeight: '800', color: C.text },
+  cancelInfo: { marginTop: 6, color: '#B42318', fontWeight: '700', fontSize: 13 },
   transport: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderColor: '#E6ECE8' },
   transportHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   transportTitle: { fontWeight: '700', color: C.primary, fontSize: 14 },

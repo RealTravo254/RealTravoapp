@@ -10,7 +10,7 @@ import { computeTotal, ymd, scheduleProblem, transferPrice } from '../lib/pricin
 import { abs, durationOf, hhmm, addDays, freeSlot, addonClashes, STAY } from '../lib/schedule';
 import { pickLocation } from '../lib/pickBus';
 import { getPosition, reverseInfo } from '../lib/geo';
-import { startPayment } from '../lib/payments';
+import { startPayment } from '../lib/payments'; 
 import { C } from '../lib/theme';
 
 const GAP = 30;
@@ -84,7 +84,7 @@ export default function EditBooking({ route, navigation }) {
   if (addPickup) {
     if (!pickup) problems.push('Choose your pickup place.');
     if (!v) problems.push('Choose a vehicle that fits your group.');
-    if (v && pickup && km == null) problems.push('Calculating the pickup distance, please wait.');
+    if (v && pickup && km == null) problems.push('Calculating your pickup price, please wait.');
     if (l.pickup_times?.length && !l.pickup_times.includes(pickupTime)) problems.push('Choose one of the host pickup times.');
     if (pickupTime >= time) problems.push('Pickup must be before the booking start time.');
     if (new Date(`${startDay}T${pickupTime}:00`).getTime() < Date.now() + 3600000) problems.push('Pickup must be at least 1 hour from now.');
@@ -203,8 +203,8 @@ export default function EditBooking({ route, navigation }) {
               <Label>Vehicle</Label>
               {vehicles.map((x) => { const fits = x.max_passengers >= guests; return (
                 <Card key={x.id} onPress={() => fits && setVid(x.id)} style={{ marginHorizontal: 0, opacity: fits ? 1 : 0.4, borderWidth: 2, borderColor: vid === x.id ? C.primary : C.border }}>
-                  <Text>{x.name} · max {x.max_passengers}</Text><Muted>${x.price_per_km}/km + ${x.base_fee}</Muted></Card>); })}
-              <Text style={{ fontWeight: '700', color: C.primary }}>Pickup price: ${tprice.toFixed(2)}{km != null ? ` (${km} km)` : ''}</Text>
+                  <Text style={{ fontWeight: '700' }}>{x.name} · max {x.max_passengers}</Text><Muted>{km != null ? `Total $${transferPrice(x, km).toFixed(2)}` : 'Choose pickup to see the price'}</Muted></Card>); })}
+              <Text style={{ fontWeight: '700', color: C.primary }}>Pickup total: ${tprice.toFixed(2)}</Text>
             </>}
           </Card>
         )}

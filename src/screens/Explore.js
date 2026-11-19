@@ -15,6 +15,25 @@ import { tr } from '../i18n';
 import { C } from '../lib/theme';
 
 const RECENT = 'recent_searches';
+
+// Big service card used for Airport transfer and Custom trip
+const ServiceCard = ({ icon, title, sub, color, onPress, style }) => (
+  <TouchableOpacity activeOpacity={0.85} onPress={onPress}
+    style={[{ flex: 1, backgroundColor: color, borderRadius: 20, padding: 14, minHeight: 104, overflow: 'hidden',
+      shadowColor: '#10222E', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 }, style]}>
+    {/* soft decorative circle */}
+    <View style={{ position: 'absolute', right: -22, top: -22, width: 90, height: 90, borderRadius: 45, backgroundColor: 'rgba(255,255,255,0.14)' }} />
+    <View style={{ width: 40, height: 40, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
+      <Ionicons name={icon} size={22} color="#fff" />
+    </View>
+    <Text numberOfLines={1} style={{ color: '#fff', fontSize: 15, fontWeight: '800', marginTop: 10 }}>{title}</Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+      <Text numberOfLines={1} style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>{sub}</Text>
+      <Ionicons name="arrow-forward-circle" size={22} color="#fff" />
+    </View>
+  </TouchableOpacity>
+);
+
 export default function Explore({ navigation, route }) {
   const { ensureLogin, profile } = useAuth();
   const [text, setText] = useState(''); const [q, setQ] = useState(''); const [cat, setCat] = useState(null);
@@ -125,21 +144,38 @@ export default function Explore({ navigation, route }) {
     </ScrollView>
   );
 
+  const railTitle = (title, icon, color) => (
+    <View style={{ flexDirection: 'row', alignItems: 'center', margin: 12, marginBottom: 8 }}><Ionicons name={icon} size={18} color={color || C.primary} /><Text style={{ fontSize: 17, fontWeight: '800', marginLeft: 6, color: C.text }}>{title}</Text></View>
+  );
   // a row of top-rated cards
   const rail = (title, icon, data, color) => (
     <View key={title}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', margin: 12, marginBottom: 8 }}><Ionicons name={icon} size={18} color={color || C.primary} /><Text style={{ fontSize: 17, fontWeight: '800', marginLeft: 6, color: C.text }}>{title}</Text></View>
+      {railTitle(title, icon, color)}
       <FlatList horizontal data={data} keyExtractor={(i) => i.id} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}
         renderItem={({ item }) => <MiniCard item={item} onPress={() => navigation.navigate('ListingDetail', { id: item.id })} />} />
+    </View>);
+  // same row, but grey pulsing placeholders (used while loading AND when a section has nothing)
+  const railSkeleton = (title, icon, color) => (
+    <View key={title}>
+      {railTitle(title, icon, color)}
+      <View style={{ flexDirection: 'row', paddingHorizontal: 12 }}><SkeletonMini /><SkeletonMini /></View>
     </View>);
   const suffix = where ? ` ${where}` : '';
   const rails = () => {
     if (q) return null;
-    if (top === null) return (<><View style={{ margin: 12, marginBottom: 8 }}><Text style={{ fontSize: 17, fontWeight: '800', color: C.text }}>⭐ Top rated</Text></View><View style={{ flexDirection: 'row', paddingHorizontal: 12 }}><SkeletonMini /><SkeletonMini /></View></>);
-    if (cat) { const d = top.filter((x) => x.category === cat).slice(0, 10); return d.length ? rail(`Top rated ${tr(cat)}${suffix}`, catIcon(cat), d, catColor(cat)) : null; }
+    if (top === null) return railSkeleton('Top rated', 'star');
+    if (cat) {
+      const d = top.filter((x) => x.category === cat).slice(0, 10);
+      const title = `Top rated ${tr(cat)}${suffix}`;
+      return d.length ? rail(title, catIcon(cat), d, catColor(cat)) : railSkeleton(title, catIcon(cat), catColor(cat));
+    }
     return (<>
-      {top.length > 0 && rail(`Top rated${suffix}`, 'star', top.slice(0, 10))}
-      {CATS.map((c) => { const d = top.filter((x) => x.category === c.key).slice(0, 10); return d.length ? rail(`${tr(c.key)} · top rated${suffix}`, c.icon, d, c.color) : null; })}
+      {top.length > 0 ? rail(`Top rated${suffix}`, 'star', top.slice(0, 10)) : railSkeleton(`Top rated${suffix}`, 'star')}
+      {CATS.map((c) => {
+        const d = top.filter((x) => x.category === c.key).slice(0, 10);
+        const title = `${tr(c.key)} · top rated${suffix}`;
+        return d.length ? rail(title, c.icon, d, c.color) : railSkeleton(title, c.icon, c.color);
+      })}
     </>);
   };
 
@@ -162,9 +198,9 @@ export default function Explore({ navigation, route }) {
             </TouchableOpacity>);
         })}
       </View>
-      <View style={{ flexDirection: 'row', paddingHorizontal: 12 }}>
-        <Btn style={{ flex: 1, marginRight: 4 }} kind="ghost" title={`🚐 ${tr('transfer')}`} onPress={() => go('AirportTransfer')} />
-        <Btn style={{ flex: 1, marginLeft: 4 }} kind="ghost" title={`🧳 ${tr('custom')}`} onPress={() => go('TripBuilder')} />
+      <View style={{ flexDirection: 'row', paddingHorizontal: 12, marginTop: 4 }}>
+        <ServiceCard style={{ marginRight: 6 }} color="#0B4F6C" icon="car-sport" title={tr('transfer')} sub="Airport pickup & drop-off" onPress={() => go('AirportTransfer')} />
+        <ServiceCard style={{ marginLeft: 6 }} color="#E8890C" icon="map" title={tr('custom')} sub="Build your own trip" onPress={() => go('TripBuilder')} />
       </View>
       {rails()}
       <Text style={{ fontSize: 18, fontWeight: '800', margin: 12, marginBottom: 0, color: C.text }}>{q ? `Results for “${q}”` : cat ? tr(cat) : 'All places'}</Text>
@@ -187,7 +223,7 @@ export default function Explore({ navigation, route }) {
         {panel}
       </>) : loading ? (<ScrollView onScroll={onScroll} scrollEventThrottle={16}>{header}<SkeletonList n={3} /></ScrollView>) : (
         <FlatList data={rows} keyExtractor={(i) => i.id} keyboardShouldPersistTaps="handled" ListHeaderComponent={header} onScroll={onScroll} scrollEventThrottle={16}
-          ListEmptyComponent={<Muted style={{ textAlign: 'center', margin: 30 }}>No places found.</Muted>}
+          ListEmptyComponent={q ? <Muted style={{ textAlign: 'center', margin: 30 }}>No places found.</Muted> : <SkeletonList n={3} />}
           renderItem={({ item }) => <ListingCard item={item} onPress={() => navigation.navigate('ListingDetail', { id: item.id })} />}
           ListFooterComponent={<Pager page={page} setPage={setPage} hasMore={hasMore} />} />
       )}

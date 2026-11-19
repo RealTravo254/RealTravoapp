@@ -75,15 +75,30 @@ function TripRequests() {
     <View style={{ flexDirection: 'row' }}><Btn style={{ flex: 1, margin: 2 }} title="Accept" onPress={() => act(r.id, 'accepted')} /><Btn style={{ flex: 1, margin: 2 }} kind="ghost" title="Counter" onPress={() => act(r.id, 'countered')} /><Btn style={{ flex: 1, margin: 2 }} kind="danger" title="Reject" onPress={() => act(r.id, 'rejected')} /></View></Card>)}</ScrollView>;
 }
 
+// Vehicles / car types: admin adds, edits, enables or removes. Guests only see the total price.
 function Vehicles() {
-  const [rows, setRows] = useState([]); const [n, setN] = useState({ name: '', type: 'car', max_passengers: '4', base_fee: '5', price_per_km: '1' });
+  const empty = { name: '', type: 'car', max_passengers: '4', base_fee: '5', price_per_km: '1' };
+  const [rows, setRows] = useState([]); const [n, setN] = useState(empty); const [editId, setEditId] = useState(null);
   const load = () => supabase.from('vehicles').select('*').order('max_passengers').then(({ data }) => setRows(data || []));
   useEffect(() => { load(); }, []);
-  const add = async () => { const { error } = await supabase.from('vehicles').insert({ ...n, max_passengers: Number(n.max_passengers), base_fee: Number(n.base_fee), price_per_km: Number(n.price_per_km) }); if (error) Alert.alert('Error', error.message); load(); };
+  const save = async () => {
+    if (!n.name) return Alert.alert('Enter the vehicle name');
+    const row = { name: n.name, type: n.type, max_passengers: Number(n.max_passengers), base_fee: Number(n.base_fee), price_per_km: Number(n.price_per_km) };
+    const { error } = editId ? await supabase.from('vehicles').update(row).eq('id', editId) : await supabase.from('vehicles').insert(row);
+    if (error) Alert.alert('Error', error.message); else { setN(empty); setEditId(null); } load();
+  };
   const upd = async (id, patch) => { await supabase.from('vehicles').update(patch).eq('id', id); load(); };
-  return <ScrollView>{rows.map(v => <Card key={v.id}><Text style={{ fontWeight: '700' }}>{v.name} ({v.type}) · max {v.max_passengers}</Text><Muted>${v.price_per_km}/km · base ${v.base_fee} · {v.active ? 'active' : 'off'}</Muted>
-    <Btn kind="ghost" title={v.active ? 'Disable' : 'Enable'} onPress={() => upd(v.id, { active: !v.active })} /></Card>)}
-    <View style={{ padding: 12 }}><Label>New vehicle</Label>{['name', 'type', 'max_passengers', 'base_fee', 'price_per_km'].map(k => <Input key={k} placeholder={k} value={n[k]} onChangeText={(v) => setN({ ...n, [k]: v })} />)}<Btn title="Add vehicle" onPress={add} /></View></ScrollView>;
+  const FIELDS = [['name', 'Name (e.g. Toyota Noah)'], ['type', 'Type (car, van, bus)'], ['max_passengers', 'Max passengers'], ['base_fee', 'Base fee (USD)'], ['price_per_km', 'Price per km (USD)']];
+  return <ScrollView keyboardShouldPersistTaps="handled">{rows.map((v) => <Card key={v.id}><Text style={{ fontWeight: '700' }}>{v.name} ({v.type}) · max {v.max_passengers}</Text>
+    <Muted>${v.price_per_km}/km · base ${v.base_fee} · {v.active ? 'active' : 'off'} (guests see only the total)</Muted>
+    <View style={{ flexDirection: 'row' }}>
+      <Btn style={{ flex: 1, margin: 2 }} kind="ghost" title="Edit" onPress={() => { setEditId(v.id); setN({ name: v.name, type: v.type, max_passengers: String(v.max_passengers), base_fee: String(v.base_fee), price_per_km: String(v.price_per_km) }); }} />
+      <Btn style={{ flex: 1, margin: 2 }} kind="ghost" title={v.active ? 'Disable' : 'Enable'} onPress={() => upd(v.id, { active: !v.active })} />
+      <Btn style={{ flex: 1, margin: 2 }} kind="danger" title="Delete" onPress={async () => { await supabase.from('vehicles').delete().eq('id', v.id); load(); }} /></View></Card>)}
+    <View style={{ padding: 12 }}><Label>{editId ? 'Edit vehicle' : 'New vehicle'}</Label>
+      {FIELDS.map(([k, p]) => <Input key={k} placeholder={p} keyboardType={['max_passengers', 'base_fee', 'price_per_km'].includes(k) ? 'decimal-pad' : 'default'} value={n[k]} onChangeText={(v) => setN({ ...n, [k]: v })} />)}
+      <Btn title={editId ? 'Save changes' : 'Add vehicle'} onPress={save} />
+      {editId && <Btn kind="ghost" title="Cancel edit" onPress={() => { setEditId(null); setN(empty); }} />}</View></ScrollView>;
 }
 
 function Destinations() {
@@ -101,7 +116,7 @@ function Settings() {
   const [s, setS] = useState(null);
   useEffect(() => { supabase.from('app_settings').select('*').eq('id', 1).single().then(({ data }) => setS(data)); }, []);
   if (!s) return null;
-  const save = async () => { const { error } = await supabase.from('app_settings').update({ commission_percent: Number(s.commission_percent), subscription_price: Number(s.subscription_price), subscription_price_kes: Number(s.subscription_price_kes), unpaid_hold_hours: Number(s.unpaid_hold_hours), latest_version: s.latest_version, min_version: s.min_version, update_url: s.update_url || null, update_message: s.update_message || null, urgent_response_hours: Number(s.urgent_response_hours), normal_response_hours: Number(s.normal_response_hours) }).eq('id', 1); Alert.alert(error ? error.message : 'Saved'); };
+  const save = async () => { const { error } = await supabase.from('app_settings').update({ commission_percent: Number(s.commission_percent), subscription_price: Number(s.subscription_price), subscription_price_kes: Number(s.subscription_price_kes), unpaid_hold_hours: Number(s.unpaid_hold_hours), latest_version: s.latest_version, min_version: s.min_version, update_url: s.update_url || null, update_message: s.update_message || null, urgent_response_hours: Number(s.urgent_response_hours), normal_response_hours: Number(s.normal_response_hours), custom_cancel_fee_percent: Number(s.custom_cancel_fee_percent ?? 20) }).eq('id', 1); Alert.alert(error ? error.message : 'Saved'); };
   return <ScrollView contentContainerStyle={{ padding: 12 }}>
     <Label>Commission % per booking</Label><Input keyboardType="decimal-pad" value={String(s.commission_percent)} onChangeText={(v) => setS({ ...s, commission_percent: v })} />
     <Label>Host subscription price (KES, paid by M-Pesa)</Label><Input keyboardType="decimal-pad" value={String(s.subscription_price_kes ?? '')} onChangeText={(v) => setS({ ...s, subscription_price_kes: v })} />
@@ -113,6 +128,7 @@ function Settings() {
     <Label>Contacts subscription price</Label><Input keyboardType="decimal-pad" value={String(s.subscription_price)} onChangeText={(v) => setS({ ...s, subscription_price: v })} />
     <Label>Urgent response hours</Label><Input keyboardType="number-pad" value={String(s.urgent_response_hours)} onChangeText={(v) => setS({ ...s, urgent_response_hours: v })} />
     <Label>Normal response hours</Label><Input keyboardType="number-pad" value={String(s.normal_response_hours)} onChangeText={(v) => setS({ ...s, normal_response_hours: v })} />
+    <Label>Custom trip: cancellation fee % per cancelled item</Label><Input keyboardType="decimal-pad" value={String(s.custom_cancel_fee_percent ?? 20)} onChangeText={(v) => setS({ ...s, custom_cancel_fee_percent: v })} />
     <Btn title="Save" onPress={save} /></ScrollView>;
 }
 
@@ -154,19 +170,39 @@ function Regions() {
       <Btn style={{ flex: 1, margin: 2 }} kind="danger" title="Delete" onPress={async () => { await supabase.from('country_divisions').delete().eq('id', r.id); load(); }} /></View></Card>)}</ScrollView>;
 }
 
+// Airports grouped by country and city. Admin adds, edits, hides or deletes.
 function Airports() {
-  const nav = useNavigation(); const [rows, setRows] = useState([]); const [n, setN] = useState({ name: '', code: '', city: '', country: '' }); const [pt, setPt] = useState(null);
-  const load = () => supabase.from('airports').select('*').order('country').order('name').then(({ data }) => setRows(data || []));
+  const nav = useNavigation(); const empty = { name: '', code: '', city: '', region: '', country: '' };
+  const [rows, setRows] = useState([]); const [n, setN] = useState(empty); const [pt, setPt] = useState(null); const [editId, setEditId] = useState(null); const [q, setQ] = useState('');
+  const load = () => supabase.from('airports').select('*').order('country').order('city').order('name').then(({ data }) => setRows(data || []));
   useEffect(() => { load(); }, []);
-  const add = async () => { if (!n.name || !n.country || !pt) return Alert.alert('Name, country and map location are required'); const { error } = await supabase.from('airports').insert({ ...n, code: n.code.toUpperCase() || null, lat: pt.lat, lng: pt.lng }); if (error) Alert.alert('Error', error.message); else { setN({ name: '', code: '', city: '', country: n.country }); setPt(null); } load(); };
-  return <ScrollView><View style={{ padding: 12 }}><Label>Add airport (guests are picked up from these)</Label>
-    <Input placeholder="Airport name" value={n.name} onChangeText={(v) => setN({ ...n, name: v })} /><Input placeholder="Code (JRO)" autoCapitalize="characters" value={n.code} onChangeText={(v) => setN({ ...n, code: v })} />
-    <Input placeholder="City" value={n.city} onChangeText={(v) => setN({ ...n, city: v })} /><CountryPicker value={n.country} onChange={(v) => setN({ ...n, country: v })} />
+  const save = async () => {
+    if (!n.name || !n.country || !n.city || !pt) return Alert.alert('Name, country, city and map location are required');
+    const row = { name: n.name.trim(), code: n.code.toUpperCase() || null, city: n.city.trim(), region: n.region.trim() || null, country: n.country, lat: pt.lat, lng: pt.lng };
+    const { error } = editId ? await supabase.from('airports').update(row).eq('id', editId) : await supabase.from('airports').insert(row);
+    if (error) Alert.alert('Error', error.message); else { setN({ ...empty, country: n.country }); setPt(null); setEditId(null); } load();
+  };
+  const s = q.trim().toLowerCase();
+  const shown = rows.filter((a) => !s || `${a.name} ${a.code || ''} ${a.city || ''} ${a.country}`.toLowerCase().includes(s));
+  const groups = {}; shown.forEach((a) => { const k = `${a.country}|${a.city || 'Other'}`; (groups[k] = groups[k] || []).push(a); });
+  return <ScrollView keyboardShouldPersistTaps="handled"><View style={{ padding: 12 }}><Label>{editId ? 'Edit airport' : 'Add airport (guests are picked up from these)'}</Label>
+    <Label>Country</Label><CountryPicker value={n.country} onChange={(v) => setN({ ...n, country: v })} />
+    <Input placeholder="City" value={n.city} onChangeText={(v) => setN({ ...n, city: v })} />
+    <Input placeholder="Region / county (optional)" value={n.region} onChangeText={(v) => setN({ ...n, region: v })} />
+    <Input placeholder="Airport name" value={n.name} onChangeText={(v) => setN({ ...n, name: v })} />
+    <Input placeholder="Code (JRO)" autoCapitalize="characters" value={n.code} onChangeText={(v) => setN({ ...n, code: v })} />
     <Btn kind="ghost" title={pt ? `📍 ${pt.lat.toFixed(4)}, ${pt.lng.toFixed(4)}` : '🗺️ Pick location on map'} onPress={async () => { const r = await pickLocation(nav, 'Airport location'); if (r) setPt(r); }} />
-    <Btn title="Add airport" onPress={add} /></View>
-    {rows.map((a) => <Card key={a.id}><Text style={{ fontWeight: '700' }}>{a.code ? `${a.code} · ` : ''}{a.name}</Text><Muted>{a.city}, {a.country}{a.active ? '' : ' · hidden'}</Muted><View style={{ flexDirection: 'row' }}>
-      <Btn style={{ flex: 1, margin: 2 }} kind="ghost" title={a.active ? 'Hide' : 'Show'} onPress={async () => { await supabase.from('airports').update({ active: !a.active }).eq('id', a.id); load(); }} />
-      <Btn style={{ flex: 1, margin: 2 }} kind="danger" title="Delete" onPress={async () => { await supabase.from('airports').delete().eq('id', a.id); load(); }} /></View></Card>)}</ScrollView>;
+    <Btn title={editId ? 'Save changes' : 'Add airport'} onPress={save} />
+    {editId && <Btn kind="ghost" title="Cancel edit" onPress={() => { setEditId(null); setN(empty); setPt(null); }} />}
+    <Input placeholder="🔍 Search airports" value={q} onChangeText={setQ} /></View>
+    {Object.entries(groups).map(([k, list]) => { const [ctry, city] = k.split('|'); return <View key={k}>
+      <Text style={{ fontWeight: '800', marginHorizontal: 12, marginTop: 8 }}>📍 {city}, {ctry}</Text>
+      {list.map((a) => <Card key={a.id}><Text style={{ fontWeight: '700' }}>{a.code ? `${a.code} · ` : ''}{a.name}</Text><Muted>{a.region ? `${a.region} · ` : ''}{a.lat?.toFixed?.(3)}, {a.lng?.toFixed?.(3)}{a.active ? '' : ' · hidden'}</Muted>
+        <View style={{ flexDirection: 'row' }}>
+          <Btn style={{ flex: 1, margin: 2 }} kind="ghost" title="Edit" onPress={() => { setEditId(a.id); setN({ name: a.name, code: a.code || '', city: a.city || '', region: a.region || '', country: a.country }); setPt({ lat: a.lat, lng: a.lng }); }} />
+          <Btn style={{ flex: 1, margin: 2 }} kind="ghost" title={a.active ? 'Hide' : 'Show'} onPress={async () => { await supabase.from('airports').update({ active: !a.active }).eq('id', a.id); load(); }} />
+          <Btn style={{ flex: 1, margin: 2 }} kind="danger" title="Delete" onPress={async () => { await supabase.from('airports').delete().eq('id', a.id); load(); }} /></View></Card>)}
+    </View>; })}</ScrollView>;
 }
 
 function HostIds() {

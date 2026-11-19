@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ScrollView, View, Text, Image, Linking, Alert, Dimensions, TouchableOpacity } from 'react-native';
+import { ScrollView, View, Text, Linking, Alert, Dimensions, TouchableOpacity } from 'react-native';
 import MapView, { Marker } from '../components/SafeMap';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,8 +15,10 @@ import { startPayment } from '../lib/payments';
 import { C } from '../lib/theme';
 
 const W = Dimensions.get('window').width;
-const BAR_KINDS = { hotel: ['room'], airbnb: ['room'], campsite: ['entrance'], attraction: ['entrance'], activity: ['activity', 'ticket'], event: ['ticket'], guide: ['guide'] };
+const BAR_KINDS = { hotel: ['room'], resort: ['room'], airbnb: ['room'], campsite: ['entrance'], attraction: ['entrance'], activity: ['activity', 'ticket'], event: ['ticket'], guide: ['guide'] };
 const PER = { per_night: '/ night', per_person: '/ person', per_group: '/ group', per_day: '/ day' };
+const CAT_LABEL = { hotel: '🏨 Hotel', resort: '🌴 Resort', campsite: '⛺ Campsite', attraction: '🏞️ Attraction', airbnb: '🏡 Airbnb', activity: '🎯 Activity', guide: '🧭 Guide', event: '🎟️ Event' };
+const ROOM_CATS = ['hotel', 'resort', 'airbnb'];
 
 // What the fixed bottom bar shows: price, entrance fee or tickets, depending on the category
 function barInfo(l, prices) {
@@ -29,7 +31,8 @@ function barInfo(l, prices) {
     return min === null ? { label: 'Entrance fee', value: 'On request', per: '' } : { label: 'Entrance from', value: `$${min}`, per };
   }
   if (min === null) return { label: 'Price', value: 'On request', per: '' };
-  return { label: l.category === 'event' ? 'Tickets from' : 'From', value: min === 0 ? 'Free' : `$${min}`, per };
+  const label = l.category === 'event' ? 'Tickets from' : ROOM_CATS.includes(l.category) ? 'Room from' : 'From';
+  return { label, value: min === 0 ? 'Free' : `$${min}`, per };
 }
 const today = () => ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date().getDay()];
 
@@ -59,10 +62,13 @@ export default function ListingDetail({ route, navigation }) {
   if (!l) return <Loader />;
   const offer = bestOffer(offers);
   const bar = barInfo(l, prices);
-  const photos = l.photos.length ? l.photos : [null];
+  const photos = l.photos?.length ? l.photos : [null];
+  const hasRooms = ROOM_CATS.includes(l.category);
+  const rooms = hasRooms ? prices.filter((p) => p.kind === 'room').sort((a, b) => Number(a.price) - Number(b.price)) : [];
   const extras = prices.filter((p) => ['facility', 'activity'].includes(p.kind));
-  const plain = prices.filter((p) => !['facility', 'activity'].includes(p.kind));
+  const plain = prices.filter((p) => !['facility', 'activity'].includes(p.kind) && !(hasRooms && p.kind === 'room'));
   const hours = (d) => l.opening_hours?.[d] ?? (l.open_days?.includes(d) ? { open: l.open_time?.slice(0, 5), close: l.close_time?.slice(0, 5) } : { closed: true });
+  const hoursTitle = ['hotel', 'resort'].includes(l.category) ? 'Reception hours' : 'Opening hours';
 
   const fmt = (x) => new Date(x + 'T12:00:00').toDateString();
   const sched = l.category === 'event' || l.schedule_type === 'one_time' ? { t: 'Happens once', v: l.event_date ? new Date(l.event_date).toLocaleString() : 'Date to be announced' }
@@ -78,14 +84,30 @@ export default function ListingDetail({ route, navigation }) {
             {photos.map((u, i) => <Img key={i} uri={u} category={l.category} style={{ width: W, height: 240 }} />)}
           </ScrollView>
           <SaveButton id={l.id} /><ShareButton item={l} />
+          <View style={{ position: 'absolute', left: 12, bottom: 28, backgroundColor: 'rgba(16,34,46,0.8)', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 }}>
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{CAT_LABEL[l.category] || l.category}</Text></View>
           {photos.length > 1 && <View style={{ position: 'absolute', bottom: 12, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center' }}>
             {photos.map((_, i) => <View key={i} style={{ width: i === slide ? 20 : 7, height: 7, borderRadius: 4, marginHorizontal: 3, backgroundColor: i === slide ? '#fff' : 'rgba(255,255,255,0.55)' }} />)}</View>}
         </View>
         <H>{l.title}</H>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 12, marginBottom: 2 }}><Ionicons name="person-circle-outline" size={20} color={C.primary} /><Text style={{ marginLeft: 6, color: C.muted }}>Hosted by <Text style={{ fontWeight: '800', color: C.text }}>{l.providers?.business_name || 'Host'}</Text></Text></View>
-        <Muted style={{ marginHorizontal: 12 }}>{l.category} · {l.location_name || l.region}, {l.country} · ⭐ {Number(l.rating_avg).toFixed(1)} ({l.rating_count})</Muted>
+        <Muted style={{ marginHorizontal: 12 }}>{CAT_LABEL[l.category] || l.category} · {l.location_name || l.region}, {l.country} · ⭐ {Number(l.rating_avg).toFixed(1)} ({l.rating_count})</Muted>
         {offer && <Card style={{ backgroundColor: '#FFF4E5' }}><Text style={{ fontWeight: '700' }}>🔥 {offer.title}: {offer.percent_off}% off</Text></Card>}
         <Card><Text>{l.description}</Text></Card>
+
+        {/* rooms for hotels, resorts and Airbnbs */}
+        {rooms.length > 0 && <View>
+          <H>Rooms</H>
+          {rooms.map((p) => (
+            <Card key={p.id} style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#E3EDE8', alignItems: 'center', justifyContent: 'center' }}><Ionicons name="bed" size={20} color={C.primary} /></View>
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={{ fontWeight: '800', fontSize: 15 }}>{p.label && p.label !== 'room' ? p.label : 'Room'}</Text>
+                <Muted>{p.audience} · {p.unit.replace('_', ' ')}</Muted>
+              </View>
+              <Text style={{ fontWeight: '800', fontSize: 18, color: C.primary }}>{Number(p.price) === 0 ? 'Free' : `$${p.price}`}</Text>
+            </Card>))}
+        </View>}
 
         {l.facilities?.length > 0 && <Card><Text style={{ fontWeight: '800', marginBottom: 8 }}>Amenities</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{l.facilities.map((a) => (
@@ -95,7 +117,7 @@ export default function ListingDetail({ route, navigation }) {
         {scheduleCard}
         {l.pickup_times?.length > 0 && <Card><View style={{ flexDirection: 'row', alignItems: 'center' }}><Ionicons name="car" size={20} color={C.primary} /><Text style={{ fontWeight: '800', marginLeft: 8 }}>Pickup times</Text></View><Text style={{ marginTop: 4 }}>{l.pickup_times.join('  ·  ')}</Text></Card>}
         {!['tour', 'one_time'].includes(l.schedule_type) && l.category !== 'event' && <Card>
-          <Text style={{ fontWeight: '800', marginBottom: 6 }}>Opening hours</Text>
+          <Text style={{ fontWeight: '800', marginBottom: 6 }}>{hoursTitle}</Text>
           {DAYS.map((d) => { const h = hours(d); const t = d === today();
             return (<View key={d} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
               <Text style={{ fontWeight: t ? '800' : '400' }}>{DAY_NAMES[d]}{t ? ' (today)' : ''}</Text>

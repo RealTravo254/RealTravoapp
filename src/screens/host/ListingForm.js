@@ -22,25 +22,27 @@ const UNITS = ['per_person', 'per_group', 'per_night', 'per_day'];
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const MAX_PHOTOS = 12;
 
-// what each kind of host may list. Hotel hosts can also host events.
+// Remove rows that share the same id, so React never sees two children with the same key.
+const uniqById = (arr) => { const seen = new Set(); return (arr || []).filter((r) => r && !seen.has(r.id) && seen.add(r.id)); };
+
+// what each kind of host may list.
 const CAT_OPTS = {
-  hotel: ['hotel', 'resort', 'event'],
-  campsite: ['campsite', 'event'],
+  hotel: ['hotel', 'resort'],
+  campsite: ['campsite'],
   attraction: ['attraction'],
-  activity: ['airbnb', 'activity', 'event', 'guide'],
+  activity: ['airbnb', 'activity', 'guide'],
 };
-const CAT_LABEL = { hotel: 'Hotel', resort: 'Resort', campsite: 'Campsite', attraction: 'Attraction', airbnb: 'Airbnb', activity: 'Activity', event: 'Event', guide: 'Guide' };
+const CAT_LABEL = { hotel: 'Hotel', resort: 'Resort', campsite: 'Campsite', attraction: 'Attraction', airbnb: 'Airbnb', activity: 'Activity', guide: 'Guide' };
 const PROV_LABEL = { hotel: 'Hotel / Resort', campsite: 'Campsite', attraction: 'Attraction', activity: 'Company / business' };
 
-// These can only be listed ONCE per provider (hotel and resort share the same slot). Events are unlimited.
+// These can only be listed ONCE per provider (hotel and resort share the same slot).
 const SLOT = { hotel: 'lodging', resort: 'lodging', campsite: 'campsite', attraction: 'attraction' };
 
 // The "main" price each category must have
-const MAIN = { hotel: 'room', resort: 'room', event: 'ticket', guide: 'guide' }; // everything else = entrance
+const MAIN = { hotel: 'room', resort: 'room', guide: 'guide' }; // everything else = entrance
 const MAIN_TXT = {
   entrance: { title: 'Entrance fee', hint: 'What guests pay to enter, in USD. Add more rows for child, foreigner, resident, etc.' },
   room: { title: 'Room price', hint: 'Price per night in USD. Add a row for each room type.' },
-  ticket: { title: 'Ticket price', hint: 'What guests pay for a ticket, in USD.' },
   guide: { title: 'Guide fee', hint: 'What guests pay for the guide, in USD.' },
 };
 const UNIT_FOR = { room: 'per_night', guide: 'per_day' };
@@ -50,7 +52,8 @@ const blank = (kind, price = '0') => ({ kind, label: '', audience: 'adult', unit
 const hoursFrom = (l) => Object.fromEntries(DAYS.map((d) => [d, l?.opening_hours?.[d] ?? (l ? (l.open_days?.includes(d) ? { open: l.open_time?.slice(0, 5) || '08:00', close: l.close_time?.slice(0, 5) || '18:00' } : { closed: true }) : { open: '08:00', close: '18:00' })]));
 
 export default function ListingForm({ route, navigation }) {
-  const { session } = useAuth(); const { listing, providers = [] } = route.params || {};
+  const { session } = useAuth(); const { listing, providers: rawProviders = [] } = route.params || {};
+  const providers = uniqById(rawProviders);
   const approved = providers.filter((p) => p.verification === 'approved');
   const [providerId, setProviderId] = useState(listing?.provider_id || approved[0]?.id);
   const provider = providers.find((p) => p.id === providerId);
@@ -73,7 +76,7 @@ export default function ListingForm({ route, navigation }) {
     country: listing?.country || provider?.country || '', region: listing?.region || provider?.region || '', location_name: listing?.location_name || '',
     lat: listing?.lat, lng: listing?.lng, google_place_id: listing?.google_place_id, hours: hoursFrom(listing),
     entrance_fee_free: !!listing?.entrance_fee_free, amenities: old.filter((a) => AMENITIES.includes(a)), other: old.filter((a) => !AMENITIES.includes(a)).join(', '),
-    photos: listing?.photos || [], event_date: listing?.event_date, schedule_type: listing?.schedule_type || 'always', starts_on: listing?.starts_on || '', ends_on: listing?.ends_on || '',
+    photos: [...new Set(listing?.photos || [])], event_date: listing?.event_date, schedule_type: listing?.schedule_type || 'always', starts_on: listing?.starts_on || '', ends_on: listing?.ends_on || '',
     tour_time: listing?.open_time ? listing.open_time.slice(0, 5) : '08:00', one_date: listing?.event_date ? ymd(new Date(listing.event_date)) : '',
     one_time: listing?.event_date ? `${String(new Date(listing.event_date).getHours()).padStart(2, '0')}:${String(new Date(listing.event_date).getMinutes()).padStart(2, '0')}` : '18:00', daily_limit: listing?.daily_limit ? String(listing.daily_limit) : '', pickup_times: listing?.pickup_times || [] });
 
@@ -93,15 +96,15 @@ export default function ListingForm({ route, navigation }) {
   const set = (k) => (v) => setF((x) => ({ ...x, [k]: v }));
 
   const mainKind = MAIN[f.category] || 'entrance';
-  const canBeFree = ['entrance', 'ticket'].includes(mainKind);
+  const canBeFree = mainKind === 'entrance';
   const isFree = canBeFree && f.entrance_fee_free;
 
-  useEffect(() => { if (!f.country) return setRegions([]); supabase.from('country_divisions').select('name, countries!inner(name)').eq('countries.name', f.country).eq('active', true).order('name').then(({ data }) => setRegions((data || []).map((r) => r.name))); }, [f.country]);
+  useEffect(() => { if (!f.country) return setRegions([]); supabase.from('country_divisions').select('name, countries!inner(name)').eq('countries.name', f.country).eq('active', true).order('name').then(({ data }) => setRegions([...new Set((data || []).map((r) => r.name))])); }, [f.country]);
   useEffect(() => { if (!listing) return;
-    supabase.from('listing_prices').select('*').eq('listing_id', listing.id).then(({ data }) => { setPrices(data || []); setPricesLoaded(true); });
+    supabase.from('listing_prices').select('*').eq('listing_id', listing.id).then(({ data }) => { setPrices(uniqById(data)); setPricesLoaded(true); });
     supabase.from('listing_contacts').select('*').eq('listing_id', listing.id).maybeSingle().then(({ data }) => data && setContact(data)); }, []);
 
-  // always keep one (empty) main price row ready so the host has to fill in the entrance / room / ticket price
+  // always keep one (empty) main price row ready so the host has to fill in the entrance / room / guide price
   useEffect(() => {
     if (!pricesLoaded) return;
     setPrices((p) => {
@@ -113,14 +116,15 @@ export default function ListingForm({ route, navigation }) {
 
   const searchPlace = async () => {
     const r = await fetch(`https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(placeQ)}&key=${CONFIG.googleKey}`).then((x) => x.json());
-    setResults((r.results || []).slice(0, 5));
+    const seen = new Set();
+    setResults((r.results || []).filter((p) => !seen.has(p.place_id) && seen.add(p.place_id)).slice(0, 5));
   };
   const pick = (p) => { setF((x) => ({ ...x, location_name: p.name + ', ' + (p.formatted_address || ''), lat: p.geometry.location.lat, lng: p.geometry.location.lng, google_place_id: p.place_id })); setResults([]); };
   const here = async () => { const p = await getPosition(); if (p) setF((x) => ({ ...x, lat: p.lat, lng: p.lng })); };
   const onMap = async () => { const r = await pickLocation(navigation, 'Choose the place on the map'); if (r) setF((x) => ({ ...x, lat: r.lat, lng: r.lng, location_name: r.label })); };
 
   const setDay = (d, patch) => setF((x) => ({ ...x, hours: { ...x.hours, [d]: patch } }));
-  const sched = f.category === 'event' ? 'one_time' : (['activity', 'guide'].includes(f.category) ? f.schedule_type : 'always'); const showHours = !['tour', 'one_time'].includes(sched);
+  const sched = ['activity', 'guide'].includes(f.category) ? f.schedule_type : 'always'; const showHours = !['tour', 'one_time'].includes(sched);
   const copyToAll = () => { const first = DAYS.map((d) => f.hours[d]).find((h) => !h.closed); if (first) setF((x) => ({ ...x, hours: Object.fromEntries(DAYS.map((d) => [d, { ...first }])) })); };
   const toggleAmenity = (a) => set('amenities')(f.amenities.includes(a) ? f.amenities.filter((x) => x !== a) : [...f.amenities, a]);
 
@@ -145,7 +149,8 @@ export default function ListingForm({ route, navigation }) {
         onStart: (n) => setBusy(`Uploading 0 of ${n}…`),
         onProgress: (d, n) => setBusy(`Uploading ${d} of ${n}…`),
       });
-      if (urls.length) setF((x) => ({ ...x, photos: [...x.photos, ...urls].slice(0, MAX_PHOTOS) }));
+      // the same photo can never be added twice
+      if (urls.length) setF((x) => ({ ...x, photos: [...new Set([...x.photos, ...urls])].slice(0, MAX_PHOTOS) }));
     } catch (e) { Alert.alert('Upload failed', e.message); } finally { setBusy(null); }
   };
   const addRowPhoto = async (i) => {
@@ -187,10 +192,10 @@ export default function ListingForm({ route, navigation }) {
   };
 
   const providerNote = !provider ? null
-    : provider.category === 'hotel' ? 'Hotel / resort host: one hotel or resort, plus any number of events.'
-    : provider.category === 'campsite' ? 'Campsite host: one campsite and any number of events.'
+    : provider.category === 'hotel' ? 'Hotel / resort host: one hotel or resort.'
+    : provider.category === 'campsite' ? 'Campsite host: one campsite.'
     : provider.category === 'attraction' ? 'Attraction host: one attraction.'
-    : 'Company: Airbnbs, activities, events, guided tours, trips and guides. No separate verification per listing.';
+    : 'Company: Airbnbs, activities, guided tours, trips and guides. No separate verification per listing.';
 
   const renderMainRow = (p, i, count) => (
     <View key={i} style={{ marginBottom: 10 }}>
@@ -250,10 +255,10 @@ export default function ListingForm({ route, navigation }) {
       <Btn kind="ghost" title="Copy first open day to every day" onPress={copyToAll} />
       </>}
 
-      {['activity', 'guide', 'event'].includes(f.category) && (<>
+      {['activity', 'guide'].includes(f.category) && (<>
         <Label>When does it happen?</Label>
-        {f.category !== 'event' && <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-          {[['always', 'Ongoing (no end date)'], ['range', 'Activity with an end date'], ['tour', 'Tour / trip with start & end date'], ['one_time', 'Happens once (date & time)']].map(([k, l]) => <View key={k} style={{ marginBottom: 6 }}><Chip label={l} active={sched === k} onPress={() => set('schedule_type')(k)} /></View>)}</View>}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+          {[['always', 'Ongoing (no end date)'], ['range', 'Activity with an end date'], ['tour', 'Tour / trip with start & end date'], ['one_time', 'Happens once (date & time)']].map(([k, l]) => <View key={k} style={{ marginBottom: 6 }}><Chip label={l} active={sched === k} onPress={() => set('schedule_type')(k)} /></View>)}</View>
         {(sched === 'range' || sched === 'tour') && <>
           <Btn kind="ghost" title={`📅 Starts: ${f.starts_on || 'pick a date'}`} onPress={() => setDpick('start')} />
           <Btn kind="ghost" title={`🏁 Ends: ${f.ends_on || 'pick a date'}`} onPress={() => setDpick('end')} />
@@ -267,10 +272,10 @@ export default function ListingForm({ route, navigation }) {
           onCancel={() => setDpick(null)} onDone={(d) => { const w = dpick; setDpick(null); set(w === 'start' ? 'starts_on' : w === 'end' ? 'ends_on' : 'one_date')(ymd(d)); }} />
       </>)}
 
-      {/* ---------- main price: entrance / room / ticket / guide ---------- */}
+      {/* ---------- main price: entrance / room / guide ---------- */}
       <Label>{MAIN_TXT[mainKind].title}</Label>
       <Card style={{ marginHorizontal: 0 }}>
-        {canBeFree && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ fontWeight: '700' }}>{mainKind === 'ticket' ? 'Free event' : 'Free entrance'}</Text><Switch value={f.entrance_fee_free} onValueChange={set('entrance_fee_free')} /></View>}
+        {canBeFree && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ fontWeight: '700' }}>Free entrance</Text><Switch value={f.entrance_fee_free} onValueChange={set('entrance_fee_free')} /></View>}
         {isFree
           ? <Muted>Guests get in for free.</Muted>
           : <>
@@ -281,7 +286,7 @@ export default function ListingForm({ route, navigation }) {
             </>}
       </Card>
 
-      <Label>Daily limit (max guests / tickets per day, empty = unlimited)</Label><Input keyboardType="number-pad" value={f.daily_limit} onChangeText={set('daily_limit')} />
+      <Label>Daily limit (max guests per day, empty = unlimited)</Label><Input keyboardType="number-pad" value={f.daily_limit} onChangeText={set('daily_limit')} />
 
       <Label>Amenities (choose from the list)</Label>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{AMENITIES.map((a) => <View key={a} style={{ marginBottom: 6 }}><Chip label={a} active={f.amenities.includes(a)} onPress={() => toggleAmenity(a)} /></View>)}</View>
@@ -299,10 +304,10 @@ export default function ListingForm({ route, navigation }) {
       <Muted>Select several photos at once. The first one is the cover photo.</Muted>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 6 }}>
         {f.photos.map((u, idx) => (
-          <View key={u} style={{ marginRight: 8 }}>
+          <View key={`${u}-${idx}`} style={{ marginRight: 8 }}>
             <Image source={{ uri: u }} style={{ width: 96, height: 96, borderRadius: 12 }} />
             {idx === 0 && <View style={{ position: 'absolute', left: 6, bottom: 6, backgroundColor: C.ink, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}><Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>Cover</Text></View>}
-            <TouchableOpacity onPress={() => set('photos')(f.photos.filter((x) => x !== u))} style={{ position: 'absolute', right: 4, top: 4, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(16,34,46,0.8)', alignItems: 'center', justifyContent: 'center' }}>
+            <TouchableOpacity onPress={() => set('photos')(f.photos.filter((_, j) => j !== idx))} style={{ position: 'absolute', right: 4, top: 4, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(16,34,46,0.8)', alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>✕</Text>
             </TouchableOpacity>
           </View>
@@ -330,7 +335,7 @@ export default function ListingForm({ route, navigation }) {
           <Input placeholder="Price USD (0 = free)" keyboardType="decimal-pad" value={String(p.price)} onChangeText={(v) => updPrice(i, 'price', v)} />
           <Btn kind="danger" title="Remove" onPress={() => setPrices((x) => x.filter((_, j) => j !== i))} /></Card>))}
       <View style={{ flexDirection: 'row' }}>
-        <Btn style={{ flex: 1, marginRight: 4 }} kind="ghost" title="＋ Price" onPress={() => addPrice(mainKind === 'ticket' ? 'entrance' : 'ticket')} />
+        <Btn style={{ flex: 1, marginRight: 4 }} kind="ghost" title="＋ Price" onPress={() => addPrice('ticket')} />
         <Btn style={{ flex: 1, marginHorizontal: 2 }} kind="ghost" title="＋ Facility" onPress={() => addPrice('facility')} />
         <Btn style={{ flex: 1, marginLeft: 4 }} kind="ghost" title="＋ Activity" onPress={() => addPrice('activity')} />
       </View>
