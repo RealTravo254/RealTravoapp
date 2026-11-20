@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, Text, Alert, View, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { Btn, Card, Input, Label, Muted, Chip, Stepper, Loader } from '../components/ui';
@@ -24,6 +25,11 @@ const STAY = ['hotel', 'resort', 'campsite', 'airbnb'];
 const ACTIVITY_CATS = ['attraction', 'activity', 'guide'];
 const STAY_CATS = ['hotel', 'resort', 'campsite', 'attraction', 'airbnb', 'activity', 'guide'];
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SAFETY_NOTES = {
+  activity: ['Check the activity requirements and conditions with the provider before you go.', 'Follow staff instructions and posted signs, and keep emergency contact details with you.'],
+  facility: ['Confirm opening hours, availability, and accessibility with the provider.', 'Follow on-site instructions and locate exits or staff if you need help.'],
+  accommodation: ['Confirm the address and check-in details with the provider before arrival.', 'On arrival, note the exits and emergency contact information, and secure your belongings.'],
+};
 
 // Remove rows that share the same id, so React never sees two children with the same key.
 const uniq = (arr) => { const seen = new Set(); return (arr || []).filter((r) => r && !seen.has(r.id) && seen.add(r.id)); };
@@ -108,6 +114,7 @@ export default function CustomTrip({ navigation }) {
   const [days, setDays] = useState(3); const [start, setStart] = useState(new Date(Date.now() + 86400000));
   const [cat, setCat] = useState('all'); const [list, setList] = useState(null); const [listError, setListError] = useState(''); const [total, setTotal] = useState(0); const [page, setPage] = useState(0); const [chosen, setChosen] = useState({}); const [reload, setReload] = useState(0);
   const [editingId, setEditingId] = useState(null); const [originalItem, setOriginalItem] = useState(null); const [editorLoading, setEditorLoading] = useState(false);
+  const [safetyItem, setSafetyItem] = useState(null);
   const [stayAvailability, setStayAvailability] = useState(null);
   // 3 pickup
   const [mode, setMode] = useState('none'); // none | oneway | return
@@ -453,7 +460,8 @@ export default function CustomTrip({ navigation }) {
 
           {list === null || (list.some((x) => STAY.includes(x.category) || x.accommodation_available) && stayAvailability === null) ? <Loader /> : listError ? <Card style={{ marginHorizontal: 0 }}><Muted>{listError}</Muted><Btn kind="ghost" title="Try again" onPress={() => setReload((n) => n + 1)} /></Card> : !visibleList?.length ? <Muted style={{ textAlign: 'center', margin: 24 }}>{list.length ? (step === 2 ? 'No accommodation is available for these dates and group size.' : 'No places are available for this trip.') : 'Nothing here yet. Try another region or category.'}</Muted> :
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>{visibleList.map((x) => { const c = chosen[x.id]; const from = cardFrom(x); const freeEntry = x.entrance_fee_free && x.category === 'attraction'; const cover = x.photos?.[0] || null; return (
-              <Card key={x.id} onPress={() => openListing(x)} style={{ width: '49%', marginHorizontal: 0, padding: 0, overflow: 'hidden', borderWidth: 2, borderColor: c ? C.primary : '#E5E7EB', backgroundColor: c ? '#F3F9F5' : '#fff' }}>
+              <Card key={x.id} style={{ width: '49%', marginHorizontal: 0, padding: 0, overflow: 'hidden', borderWidth: 2, borderColor: c ? C.primary : '#E5E7EB', backgroundColor: c ? '#F3F9F5' : '#fff' }}>
+                <TouchableOpacity activeOpacity={0.85} onPress={() => openListing(x)}>
                 <View>
                   <Img uri={cover} category={x.category} style={{ height: 105 }} />
                   <View style={{ position: 'absolute', left: 10, top: 10, backgroundColor: 'rgba(16,34,46,0.78)', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 }}>
@@ -476,6 +484,11 @@ export default function CustomTrip({ navigation }) {
                     <Text style={{ fontWeight: '800', marginTop: 4 }}>{formatMoney(lineTotal(c, c.adults, c.children))} · Tap to edit</Text>
                   </View>}
                 </View>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setSafetyItem(x)} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: 1, borderTopColor: '#E5E7EB' }}>
+                  <Ionicons name="shield-checkmark-outline" size={17} color={C.primary} />
+                  <Text style={{ color: C.primary, fontWeight: '700', marginLeft: 6 }}>Safety & visit info</Text>
+                </TouchableOpacity>
               </Card>); })}</View>}
 
           {/* pagination */}
@@ -628,6 +641,30 @@ export default function CustomTrip({ navigation }) {
             <Btn style={{ flex: 1, marginHorizontal: 4, marginVertical: 0 }} kind="ghost" title="Cancel" onPress={() => closeEditor(false)} disabled={editorLoading} />
             <Btn style={{ flex: 1, marginHorizontal: 4, marginVertical: 0 }} title={originalItem ? 'Save changes' : 'Add to trip'} onPress={() => closeEditor(true)} disabled={!editorItem || editorLoading} />
           </View>
+        </View>
+      </View>
+    </Modal>
+    <Modal visible={!!safetyItem} animationType="fade" transparent onRequestClose={() => setSafetyItem(null)}>
+      <View style={{ flex: 1, justifyContent: 'center', padding: 20, backgroundColor: 'rgba(0,0,0,0.42)' }}>
+        <View style={{ maxHeight: '80%', backgroundColor: '#fff', borderRadius: 18, overflow: 'hidden' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: C.border }}>
+            <Ionicons name="shield-checkmark-outline" size={22} color={C.primary} />
+            <Text style={{ flex: 1, fontSize: 18, fontWeight: '800', marginLeft: 8 }}>Safety & visit info</Text>
+            <TouchableOpacity onPress={() => setSafetyItem(null)}><Text style={{ color: C.primary, fontWeight: '800', padding: 6 }}>Close</Text></TouchableOpacity>
+          </View>
+          {safetyItem && <ScrollView contentContainerStyle={{ padding: 16 }}>
+            <Text style={{ fontWeight: '800', fontSize: 16 }}>{safetyItem.title}</Text>
+            <Muted style={{ marginTop: 3 }}>{safetyItem.location_name || safetyItem.region}{safetyItem.country ? `, ${safetyItem.country}` : ''}</Muted>
+            <Text style={{ fontWeight: '800', marginTop: 16, marginBottom: 6 }}>
+              {STAY.includes(safetyItem.category) || safetyItem.accommodation_available ? 'Accommodation' : 'Activity'}
+            </Text>
+            {(STAY.includes(safetyItem.category) || safetyItem.accommodation_available ? SAFETY_NOTES.accommodation : SAFETY_NOTES.activity)
+              .map((note) => <Muted key={note} style={{ marginBottom: 7 }}>• {note}</Muted>)}
+            <Text style={{ fontWeight: '800', marginTop: 12, marginBottom: 6 }}>Facilities</Text>
+            <Muted>{safetyItem.facilities?.length ? safetyItem.facilities.join(' · ') : 'Ask the provider which facilities are available during your visit.'}</Muted>
+            {SAFETY_NOTES.facility.map((note) => <Muted key={note} style={{ marginTop: 7 }}>• {note}</Muted>)}
+            <Muted style={{ marginTop: 16 }}>General reminders only; this place has not been safety-verified, and no safe zone is marked on the map. Contact the provider for current information.</Muted>
+          </ScrollView>}
         </View>
       </View>
     </Modal>

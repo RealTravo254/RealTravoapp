@@ -39,11 +39,11 @@ export default function Explore({ navigation, route, onInitialLoadComplete }) {
   const [text, setText] = useState(''); const [q, setQ] = useState(''); const [cat, setCat] = useState(null);
   const [rows, setRows] = useState([]); const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false); const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState('');
   const [focus, setFocus] = useState(false); const [sugg, setSugg] = useState([]); const [scrolled, setScrolled] = useState(false);
   const [recent, setRecent] = useState([]); const [popular, setPopular] = useState([]); const [locs, setLocs] = useState([]); const [places, setPlaces] = useState([]);
   const [place, setPlace] = useState(null); const [top, setTop] = useState(null); const [where, setWhere] = useState('');
   const [locTick, setLocTick] = useState(0);
-  const [topLoaded, setTopLoaded] = useState(false);
   const initialLoadReported = useRef(false);
   useEffect(() => on('location-granted', () => setLocTick((t) => t + 1)), []);
   useEffect(() => { if (route?.params?.cat !== undefined) setCat(route.params.cat); }, [route?.params?.cat]); // menu shortcuts
@@ -84,17 +84,15 @@ export default function Explore({ navigation, route, onInitialLoadComplete }) {
     } catch (e) {
       console.warn('Could not load top-rated listings:', e.message);
       setTop([]);
-    } finally {
-      setTopLoaded(true);
     }
   })(); }, [place]);
 
   useEffect(() => {
-    if (!loading && topLoaded && !initialLoadReported.current) {
+    if (!initialLoadReported.current) {
       initialLoadReported.current = true;
       onInitialLoadComplete?.();
     }
-  }, [loading, topLoaded, onInitialLoadComplete]);
+  }, [onInitialLoadComplete]);
 
   // ---------- search suggestions ----------
   useEffect(() => { if (!focus) return;
@@ -125,12 +123,21 @@ export default function Explore({ navigation, route, onInitialLoadComplete }) {
   // ---------- main list ----------
   const load = useCallback(async () => {
     setLoading(true);
+    setListError('');
     let query = supabase.from('listing_cards').select('*').order('is_prioritized', { ascending: false }).order('rating_avg', { ascending: false })
       .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
     if (cat) query = query.eq('category', cat);
     if (q.trim()) { const t = q.trim().replace(/[,()%]/g, ' '); query = query.or(`title.ilike.%${t}%,region.ilike.%${t}%,country.ilike.%${t}%,location_name.ilike.%${t}%`); }
-    const { data } = await query;
-    setHasMore((data || []).length > PAGE_SIZE); setRows((data || []).slice(0, PAGE_SIZE)); setLoading(false);
+    try {
+      const { data, error } = await query;
+      if (error) throw error;
+      setHasMore((data || []).length > PAGE_SIZE); setRows((data || []).slice(0, PAGE_SIZE));
+    } catch (error) {
+      console.warn('Could not load listings:', error.message);
+      setRows([]); setHasMore(false); setListError(error.message || 'Please try again.');
+    } finally {
+      setLoading(false);
+    }
   }, [q, cat, page]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => setPage(0), [q, cat]);
@@ -248,7 +255,7 @@ export default function Explore({ navigation, route, onInitialLoadComplete }) {
         {panel}
       </>) : loading ? (<ScrollView onScroll={onScroll} scrollEventThrottle={16}>{header}<SkeletonList n={3} /></ScrollView>) : (
         <FlatList data={rows} keyExtractor={(i) => i.id} keyboardShouldPersistTaps="handled" ListHeaderComponent={header} onScroll={onScroll} scrollEventThrottle={16}
-          ListEmptyComponent={q ? <Muted style={{ textAlign: 'center', margin: 30 }}>No places found.</Muted> : <SkeletonList n={3} />}
+          ListEmptyComponent={listError ? <View style={{ alignItems: 'center', margin: 30 }}><Muted style={{ textAlign: 'center' }}>Could not load places: {listError}</Muted><Btn title="Try again" kind="ghost" onPress={load} /></View> : <Muted style={{ textAlign: 'center', margin: 30 }}>No places found.</Muted>}
           renderItem={({ item }) => <ListingCard item={item} onPress={() => navigation.navigate('ListingDetail', { id: item.id })} />}
           ListFooterComponent={<Pager page={page} setPage={setPage} hasMore={hasMore} />} />
       )}
