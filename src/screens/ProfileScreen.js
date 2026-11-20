@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import ScreenHeader from '../components/ScreenHeader';
 import AuthForm from '../components/AuthForm';
-import { Chip, Muted } from '../components/ui';
+import { Muted } from '../components/ui';
 import { tr } from '../i18n';
 import { pickAndUploadPhoto } from '../lib/upload';
 import { C } from '../lib/theme';
@@ -21,7 +21,7 @@ const Section = ({ title, children }) => (<View style={{ marginTop: 16 }}><Text 
   <View style={{ backgroundColor: '#fff', marginHorizontal: 12, borderRadius: 14, paddingHorizontal: 14, borderWidth: 1, borderColor: C.border }}>{children}</View></View>);
 
 export default function ProfileScreen({ navigation }) {
-  const { profile, isProvider, isAdmin, session, refresh, ensureLogin, currency, setCurrency, formatMoney } = useAuth();
+  const { profile, isProvider, isAdmin, session, refresh, ensureLogin, formatMoney } = useAuth();
 
   // Signed out: the whole page is the login / sign up / Google screen
   if (!session) return (
@@ -61,15 +61,6 @@ export default function ProfileScreen({ navigation }) {
           <Row icon="flag-outline" label="Country" value={profile?.country ? (isProvider ? `🔒 ${profile.country}` : profile.country) : 'Not set'} />
           <Row icon="call-outline" label="Phone" value={profile?.phone || 'Not added'} />
           <Row icon="mail-outline" label="Email" value={session.user.email} onPress={() => navigation.navigate('ChangeEmail')} />
-        </Section>
-
-        <Section title="Currency">
-          <Muted style={{ marginTop: 10 }}>Prices are stored and charged in USD. Kenyan shillings use the exchange rate set by the admin.</Muted>
-          <View style={{ flexDirection: 'row', marginVertical: 8 }}>
-            {['USD', 'KES'].map((code) => <Chip key={code} label={code === 'KES' ? 'Kenyan shillings (KES)' : 'US dollars (USD)'} active={currency === code} onPress={async () => {
-              try { await setCurrency(code); } catch (e) { Alert.alert('Could not change currency', e.message); }
-            }} />)}
-          </View>
         </Section>
 
         <Section title="Account settings">

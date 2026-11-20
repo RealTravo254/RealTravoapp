@@ -5,6 +5,7 @@ import { supabase } from './supabase';
 import { i18n } from '../i18n';
 
 const KES_RATE_CACHE = 'settings:kes_per_usd';
+const DEFAULT_KES_PER_USD = 130;
 const Ctx = createContext(null);
 export const useAuth = () => useContext(Ctx);
 
@@ -14,7 +15,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [lang, setLangState] = useState(i18n.locale);
   const [pendingLegal, setPendingLegal] = useState([]); const [legalLoading, setLegalLoading] = useState(false);
-  const [kesPerUsd, setKesPerUsd] = useState(null);
+  const [kesPerUsd, setKesPerUsd] = useState(DEFAULT_KES_PER_USD);
   const agreed = useRef(false);      // user ticked the Terms & Privacy box on the sign-in screen
   const loadedFor = useRef(null);    // which user we already loaded (later refreshes must NOT show the full-screen loader)
 
@@ -74,18 +75,12 @@ export function AuthProvider({ children }) {
   };
   const profileComplete = !!(profile?.first_name && profile?.last_name && profile?.gender && profile?.country && profile?.date_of_birth);
   const subscribed = !!(profile?.subscription_until && new Date(profile.subscription_until) > new Date());
-  const currency = profile?.preferred_currency || (String(profile?.country || '').toLowerCase() === 'kenya' ? 'KES' : 'USD');
+  const currency = String(profile?.country || '').trim().toLowerCase() === 'kenya' ? 'KES' : 'USD';
   const formatMoney = useCallback((amount) => {
     const value = Number(amount || 0);
-    if (currency === 'KES') return kesPerUsd ? `KES ${Math.round(value * kesPerUsd).toLocaleString()}` : 'KES rate unavailable';
+    if (currency === 'KES') return `KES ${Math.round(value * kesPerUsd).toLocaleString()}`;
     return `$${value.toFixed(2)}`;
   }, [currency, kesPerUsd]);
-  const setCurrency = async (value) => {
-    if (!session || !['USD', 'KES'].includes(value)) throw new Error('Choose a supported currency.');
-    const { error } = await supabase.from('profiles').update({ preferred_currency: value }).eq('id', session.user.id);
-    if (error) throw error;
-    setProfile((current) => current ? { ...current, preferred_currency: value } : current);
-  };
 
   const ensureLogin = (navigation, reason) => {
     if (!session) { navigation.navigate('Auth', { reason }); return false; }
@@ -96,7 +91,7 @@ export function AuthProvider({ children }) {
   const acceptLegal = async () => { await supabase.rpc('accept_legal'); await loadLegal(session?.user?.id, false); };
 
   return <Ctx.Provider value={{ session, profile, loading, lang, setLang, refresh: () => loadProfile(session?.user?.id), profileComplete, subscribed, ensureLogin,
-    currency, kesPerUsd, formatMoney, setCurrency,
+    currency, kesPerUsd, formatMoney,
     pendingLegal, legalLoading, markAgreed, acceptLegal,
     isProvider: profile?.role === 'provider' || profile?.role === 'admin', isAdmin: profile?.role === 'admin' }}>{children}</Ctx.Provider>;
 }

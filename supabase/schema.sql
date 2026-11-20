@@ -4,7 +4,7 @@ create extension if not exists pgcrypto;
 create extension if not exists pg_trgm with schema extensions;
 
 create type user_role as enum ('user','provider','admin');
-create type listing_category as enum ('hotel','campsite','attraction','airbnb','activity','event','guide');
+create type listing_category as enum ('hotel','resort','campsite','attraction','airbnb','activity','event','guide');
 create type review_status as enum ('draft','pending','approved','rejected','hidden');
 create type booking_status as enum ('pending','accepted','declined','cancelled','completed');
 create type payment_status as enum ('unpaid','paid','refunded');
@@ -127,7 +127,8 @@ create table destinations (
   lat double precision, lng double precision, activities text[] not null default '{}', active boolean not null default true);
 create table trip_packages (
   id uuid primary key default gen_random_uuid(), user_id uuid not null references profiles(id) on delete cascade,
-  title text, people int not null default 1, start_date date, end_date date,
+  title text, people int not null default 1, start_date date, end_date date, trip_type text, pickup_time timestamptz,
+  dropoff_location text, dropoff_lat double precision, dropoff_lng double precision, return_date date, return_time time, contact_phone text,
   pickup_location text, pickup_lat double precision, pickup_lng double precision,
   vehicle_id uuid references vehicles(id), pickup_people int, distance_km numeric,
   transfer_price numeric not null default 0, total numeric not null default 0,
@@ -137,8 +138,9 @@ create table bookings (
   listing_id uuid not null references listings(id), package_id uuid references trip_packages(id) on delete set null,
   parent_booking_id uuid references bookings(id) on delete set null,
   status booking_status not null default 'pending', payment_status payment_status not null default 'unpaid',
-  urgent boolean not null default false, respond_by timestamptz, start_date date, end_date date, nights int,
-  guests int not null default 1 check (guests > 0), pickup_location text, meeting_point text, note text,
+  urgent boolean not null default false, respond_by timestamptz, start_date date, end_date date, nights int, trip_type text,
+  guests int not null default 1 check (guests > 0), pickup_location text, pickup_lat double precision, pickup_lng double precision,
+  pickup_time time, return_date date, return_time time, contact_phone text, meeting_point text, note text,
   subtotal numeric not null default 0, discount numeric not null default 0, total numeric not null default 0, commission numeric not null default 0,
   qr_token uuid not null default gen_random_uuid(), checked_in_at timestamptz, decline_reason text, created_at timestamptz not null default now());
 create index bookings_user on bookings(user_id); create index bookings_listing on bookings(listing_id);
@@ -167,7 +169,7 @@ create trigger bookings_capacity before insert on bookings for each row execute 
 create table airport_transfers (
   id uuid primary key default gen_random_uuid(), user_id uuid not null references profiles(id) on delete cascade,
   vehicle_id uuid not null references vehicles(id), booking_id uuid references bookings(id) on delete set null,
-  pickup text not null, dropoff text not null, pickup_time timestamptz not null, passengers int not null, distance_km numeric not null, price numeric not null,
+  pickup text not null, dropoff text not null, pickup_time timestamptz not null, passengers int not null, distance_km numeric not null, price numeric not null, contact_phone text,
   status booking_status not null default 'pending', payment_status payment_status not null default 'unpaid', created_at timestamptz not null default now());
 create or replace function check_vehicle_capacity() returns trigger language plpgsql set search_path = public as $$
 declare cap int;

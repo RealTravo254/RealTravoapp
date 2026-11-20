@@ -37,7 +37,7 @@ function barInfo(l, prices, formatMoney) {
 const today = () => ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date().getDay()];
 
 export default function ListingDetail({ route, navigation }) {
-  const { id } = route.params; const { session, subscribed, ensureLogin, isProvider, formatMoney } = useAuth(); const insets = useSafeAreaInsets();
+  const { id } = route.params; const { session, ensureLogin, isProvider, formatMoney } = useAuth(); const insets = useSafeAreaInsets();
   const [l, setL] = useState(null); const [prices, setPrices] = useState([]); const [offers, setOffers] = useState([]);
   const [reviews, setReviews] = useState([]); const [contact, setContact] = useState(null);
   const [slide, setSlide] = useState(0); const [left, setLeft] = useState(null);
@@ -56,7 +56,6 @@ export default function ListingDetail({ route, navigation }) {
     })();
   }, [id, session?.user?.id]);
 
-  const subscribe = () => navigation.navigate('Subscription'); // host subscription is paid with an M-Pesa prompt
   const book = () => { if (ensureLogin(navigation, 'book')) navigation.navigate('Booking', { listing: l, prices, offers }); };
 
   if (!l) return <Loader />;

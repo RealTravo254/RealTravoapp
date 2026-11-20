@@ -137,7 +137,7 @@ export default function EditBooking({ route, navigation }) {
       const transferTotal = Number(pk0?.transfer_price || 0) + tprice;
       const pkgTotal = calc.total + siblings + extrasTotal + transferTotal;
       if (needPkg && !pkgId) {
-        const r = await supabase.from('trip_packages').insert({ user_id: b.user_id, people: guests, start_date: startDay, end_date: endDay, trip_type: addPickup ? 'oneway' : null,
+        const r = await supabase.from('trip_packages').insert({ user_id: b.user_id, people: guests, start_date: startDay, end_date: endDay, contact_phone: b.contact_phone || null, trip_type: addPickup ? 'oneway' : null,
           pickup_location: addPickup ? pickup.label : null, pickup_lat: addPickup ? pickup.lat : null, pickup_lng: addPickup ? pickup.lng : null, pickup_time: pickAt,
           vehicle_id: addPickup ? v.id : null, pickup_people: addPickup ? guests : null, distance_km: addPickup ? km : null, transfer_price: tprice, total: pkgTotal }).select().single();
         if (r.error) throw r.error; pkgId = r.data.id;
@@ -155,7 +155,7 @@ export default function EditBooking({ route, navigation }) {
       const ins = await supabase.from('booking_items').insert(rows); if (ins.error) throw ins.error;
       for (const c of extras) {                                             // new add-ons: no pickup fields
         const total = lineTotal(c); const end = c.nights > 1 ? addDays(c.date, c.nights - 1) : c.date;
-        const r = await supabase.from('bookings').insert({ user_id: b.user_id, listing_id: c.l.id, package_id: pkgId, parent_booking_id: id, guests, start_date: c.date, end_date: end, nights: c.nights, start_time: c.time + ':00', subtotal: total, total }).select().single();
+        const r = await supabase.from('bookings').insert({ user_id: b.user_id, listing_id: c.l.id, package_id: pkgId, parent_booking_id: id, guests, start_date: c.date, end_date: end, nights: c.nights, start_time: c.time + ':00', contact_phone: b.contact_phone || null, subtotal: total, total }).select().single();
         if (r.error) throw r.error;
         await supabase.from('booking_items').insert(c.items.map((p) => ({ booking_id: r.data.id, price_id: p.id, label: p.label, quantity: guests, unit_price: p.price,
           amount: Number(p.price) * (p.unit === 'per_group' ? 1 : guests) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1) })));

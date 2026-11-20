@@ -7,16 +7,20 @@ import { pickLocation } from '../lib/pickBus';
 import { supabase, PAGE_SIZE } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { Btn, Card, Input, Label, Muted, Chip, Pager, Stepper } from '../components/ui';
+import PhoneField from '../components/PhoneField';
 import { transferPrice, ymd } from '../lib/pricing';
 import { startPayment } from '../lib/payments';
+import { isValidContactPhone } from '../lib/phone';
 
 // Full package: several listings + pickup transport, booked and paid in one go.
 export default function TripBuilder({ navigation }) {
-  const { session, formatMoney } = useAuth();
+  const { session, profile, formatMoney } = useAuth();
   const [people, setPeople] = useState('2'); const [start, setStart] = useState(new Date()); const [days, setDays] = useState('2');
   const [cart, setCart] = useState([]); const [q, setQ] = useState(''); const [rows, setRows] = useState([]); const [page, setPage] = useState(0);
   const [wantPickup, setWantPickup] = useState(false); const [pickup, setPickup] = useState(null); const [km, setKm] = useState(null); const [pickPeople, setPickPeople] = useState('2');
+  const [contactPhone, setContactPhone] = useState('');
   const [vehicles, setVehicles] = useState([]); const [vid, setVid] = useState(null);
+  useEffect(() => { if (!contactPhone && profile?.phone) setContactPhone(profile.phone); }, [profile?.phone]);
   useEffect(() => { supabase.from('vehicles').select('*').eq('active', true).order('max_passengers').then(({ data }) => setVehicles(data || [])); }, []);
   useEffect(() => { let x = supabase.from('listing_cards').select('*').range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE); if (q) x = x.ilike('title', `%${q}%`); x.then(({ data }) => setRows(data || [])); }, [q, page]);
   const v = vehicles.find(x => x.id === vid && x.max_passengers >= (Number(pickPeople) || 1));
@@ -37,14 +41,15 @@ export default function TripBuilder({ navigation }) {
 
   const book = async () => {
     if (!cart.length) return Alert.alert('Add at least one place');
+    if (!isValidContactPhone(contactPhone)) return Alert.alert('Phone number', 'Enter a valid phone number to continue.');
     if (wantPickup && (!v || !pickup || km == null)) return Alert.alert('Choose the pickup place on the map and a vehicle that fits your group');
     const end = new Date(start); end.setDate(end.getDate() + (Number(days) || 1) - 1);
-    const { data: pkg, error } = await supabase.from('trip_packages').insert({ user_id: session.user.id, people: Number(people), start_date: ymd(start), end_date: ymd(end),
+    const { data: pkg, error } = await supabase.from('trip_packages').insert({ user_id: session.user.id, people: Number(people), start_date: ymd(start), end_date: ymd(end), contact_phone: contactPhone,
       pickup_location: wantPickup ? pickup.label : null, pickup_lat: wantPickup ? pickup.lat : null, pickup_lng: wantPickup ? pickup.lng : null, vehicle_id: wantPickup ? v.id : null, pickup_people: wantPickup ? Number(pickPeople) : null, distance_km: wantPickup ? km : null, transfer_price: tprice, total }).select().single();
     if (error) return Alert.alert('Error', error.message);
     for (const c of cart) {
       const t = lineTotal(c);
-      const { data: b } = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: c.id, package_id: pkg.id, guests: Number(people), start_date: pkg.start_date, end_date: pkg.end_date, nights: Number(days), subtotal: t, total: t }).select().single();
+      const { data: b } = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: c.id, package_id: pkg.id, guests: Number(people), start_date: pkg.start_date, end_date: pkg.end_date, nights: Number(days), contact_phone: contactPhone, subtotal: t, total: t }).select().single();
       await supabase.from('booking_items').insert(c.items.map(p => ({ booking_id: b.id, price_id: p.id, label: p.label, quantity: Number(people), unit_price: p.price, amount: Number(p.price) * Number(people) })));
     }
     try { const p = await startPayment({ purpose: 'package', packageId: pkg.id }); navigation.replace('Pay', { url: p.authorization_url }); } catch (e) { Alert.alert('Payment', e.message); }
@@ -52,6 +57,7 @@ export default function TripBuilder({ navigation }) {
   return (
     <ScrollView contentContainerStyle={{ padding: 12 }}>
       <Stepper label="People" value={Number(people) || 1} onChange={(n) => setPeople(String(n))} min={1} max={100} />
+      <Label>Contact phone number</Label><PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} />
       <Label>Start date</Label><DateField value={start} minimumDate={new Date()} onChange={setStart} />
       
       <Stepper label="Days" value={Number(days) || 1} onChange={(n) => setDays(String(n))} min={1} max={30} />

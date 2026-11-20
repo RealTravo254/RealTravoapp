@@ -28,7 +28,6 @@ import PickLocation from './src/screens/PickLocation';
 import EditProfile from './src/screens/EditProfile';
 import Legal from './src/screens/Legal';
 import Consent from './src/screens/Consent';
-import Subscription from './src/screens/Subscription';
 import Inquiry from './src/screens/Inquiry';
 import HostInquiries from './src/screens/host/HostInquiries';
 import AuthScreen from './src/screens/AuthScreen';
@@ -78,7 +77,7 @@ const safe = (Comp) => function Safe(props) {
   return <View style={{ flex: 1, paddingBottom: i.bottom, paddingLeft: i.left, paddingRight: i.right }}><ErrorBoundary><Comp {...props} /></ErrorBoundary></View>;
 };
 const S = Object.fromEntries(Object.entries({ AuthScreen, CompleteProfile, Notifications, BookingScreen, BookingDetail, EditBooking, TravelMap, AddOns, Chat, TripBuilder, AirportTransfer, CustomTrip, PayWebView, ReviewScreen,
-  ProviderRegister, ListingForm, HostBookings, ScanQR, Analytics, PaymentSettings, AdminHome, PickLocation, EditProfile, Legal, Consent, Subscription, Inquiry, HostInquiries, ChangePassword, Inbox, ChangeEmail, BookingForms, BookingFormScreen, AdminListing }).map(([k, v]) => [k, safe(v)]));
+  ProviderRegister, ListingForm, HostBookings, ScanQR, Analytics, PaymentSettings, AdminHome, PickLocation, EditProfile, Legal, Consent, Inquiry, HostInquiries, ChangePassword, Inbox, ChangeEmail, BookingForms, BookingFormScreen, AdminListing }).map(([k, v]) => [k, safe(v)]));
 // one crashing screen never closes the whole app
 const guard = (Comp) => function Guard(props) { return <ErrorBoundary><Comp {...props} /></ErrorBoundary>; };
 const G = { Explore: guard(Explore), MapScreen: guard(MapScreen), Wishlist: guard(Wishlist), MyTrips: guard(MyTrips), HostHome: guard(HostHome), ProfileScreen: guard(ProfileScreen), ListingDetail: guard(ListingDetail) };
@@ -148,7 +147,6 @@ function Root() {
       <Stack.Screen name="ChangeEmail" component={S.ChangeEmail} options={{ title: 'Change email', ...none }} />
       <Stack.Screen name="BookingForms" component={S.BookingForms} options={{ title: 'Booking forms' }} />
       <Stack.Screen name="BookingForm" component={S.BookingFormScreen} options={{ title: 'Booking form', ...bookingHeader }} />
-      <Stack.Screen name="Subscription" component={S.Subscription} options={{ title: 'Booking form plans', ...none }} />
       <Stack.Screen name="ProviderRegister" component={S.ProviderRegister} options={{ title: 'Become a host' }} />
       <Stack.Screen name="ListingForm" component={S.ListingForm} options={{ title: 'Listing' }} />
       <Stack.Screen name="HostBookings" component={S.HostBookings} options={{ title: 'Bookings' }} />

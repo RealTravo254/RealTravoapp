@@ -7,8 +7,10 @@ import { getPosition, reverseInfo } from '../lib/geo';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { Btn, Card, Input, Label, Muted, Chip } from '../components/ui';
+import PhoneField from '../components/PhoneField';
 import { pickLocation } from '../lib/pickBus';
 import { transferPrice } from '../lib/pricing';
+import { isValidContactPhone } from '../lib/phone';
 import { startPayment } from '../lib/payments';
 import { C } from '../lib/theme';
 
@@ -16,14 +18,15 @@ const AIRPORT_PAGE_SIZE = 8;
 
 // Airports are added by the admin (by country and city). The app calculates the route; the guest only sees the total price.
 export default function AirportTransfer({ navigation }) {
-  const { session, formatMoney } = useAuth();
+  const { session, profile, formatMoney } = useAuth();
   const [dir, setDir] = useState('from');
   const [airports, setAirports] = useState([]); const [airport, setAirport] = useState(null); const [place, setPlace] = useState(null);
   const [country, setCountry] = useState(''); const [q, setQ] = useState(''); const [page, setPage] = useState(0);
   const [vehicles, setVehicles] = useState([]); const [vid, setVid] = useState(null); const [pax, setPax] = useState(1);
   const [date, setDate] = useState(new Date()); const [time, setTime] = useState('12:00');
-  const [km, setKm] = useState(null); const [busy, setBusy] = useState(false);
+  const [km, setKm] = useState(null); const [contactPhone, setContactPhone] = useState(''); const [busy, setBusy] = useState(false);
 
+  useEffect(() => { if (!contactPhone && profile?.phone) setContactPhone(profile.phone); }, [profile?.phone]);
   useEffect(() => {
     supabase.from('airports').select('*').eq('active', true).order('country').order('city').order('name').then(({ data }) => setAirports(data || []));
     supabase.from('vehicles').select('*').eq('active', true).order('max_passengers').then(({ data }) => setVehicles(data || []));
@@ -56,12 +59,14 @@ export default function AirportTransfer({ navigation }) {
     if (!airport || !place) return Alert.alert('Choose the airport and the place');
     if (!v) return Alert.alert('Choose a vehicle that fits your group');
     if (km == null) return Alert.alert('Please wait', 'We are still working out your price.');
+    if (!isValidContactPhone(contactPhone)) return Alert.alert('Phone number', 'Enter a valid phone number to continue.');
     const [h, m] = time.split(':').map(Number); const when = new Date(date); when.setHours(h, m, 0, 0);
     if (when.getTime() < Date.now() + 3600000) return Alert.alert('Pickup time', 'Choose a time at least 1 hour from now.');
     setBusy(true);
     try {
       const { data, error } = await supabase.from('airport_transfers').insert({ user_id: session.user.id, vehicle_id: v.id, airport_id: airport.id,
         pickup: dir === 'from' ? airport.name : place.label, dropoff: dir === 'from' ? place.label : airport.name, pickup_time: when.toISOString(), passengers: pax, distance_km: km, price,
+        contact_phone: contactPhone,
         pickup_lat: from.lat, pickup_lng: from.lng, dropoff_lat: to.lat, dropoff_lng: to.lng }).select().single();
       if (error) throw error;
       const p = await startPayment({ purpose: 'transfer', transferId: data.id }); navigation.replace('Pay', { url: p.authorization_url });
@@ -115,14 +120,17 @@ export default function AirportTransfer({ navigation }) {
           <TimeField value={time} onChange={setTime} />
         </View>
 
+        <H n={4} t="Contact phone number" />
+        <PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} />
+
         <RoutePreview from={from} to={to} onKm={setKm} />
 
-        <H n={4} t="Passengers" />
+        <H n={5} t="Passengers" />
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Btn title="−" kind="ghost" onPress={() => setPax(Math.max(1, pax - 1))} /><Text style={{ width: 44, textAlign: 'center', fontSize: 20, fontWeight: '800' }}>{pax}</Text><Btn title="+" kind="ghost" onPress={() => setPax(pax + 1)} />
         </View>
 
-        <H n={5} t="Choose a vehicle" />
+        <H n={6} t="Choose a vehicle" />
         {vehicles.map((x) => { const fits = x.max_passengers >= pax; const total = km != null ? transferPrice(x, km) : null; return (
           <Card key={x.id} onPress={() => fits && setVid(x.id)} style={{ marginHorizontal: 0, opacity: fits ? 1 : 0.4, borderWidth: 2, borderColor: vid === x.id ? C.primary : '#E5E7EB', backgroundColor: vid === x.id ? '#EAF3EE' : '#fff', flexDirection: 'row', alignItems: 'center' }}>
             <View style={{ flex: 1 }}><Text style={{ fontWeight: '800' }}>{x.name}</Text><Muted>Up to {x.max_passengers} passengers{fits ? '' : ' · too small for your group'}</Muted></View>

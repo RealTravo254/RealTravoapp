@@ -6,12 +6,14 @@ import { Btn, Card, Input, Label, Muted, Stepper } from '../components/ui';
 import TimeField from '../components/TimeField';
 import DateField from '../components/DateField';
 import PickupTimeField from '../components/PickupTimeField';
+import PhoneField from '../components/PhoneField';
 import RoutePreview from '../components/RoutePreview';
 import { getPosition, reverseInfo, getDistanceKm } from '../lib/geo';
 import { pickLocation } from '../lib/pickBus';
 import { computeTotal, bestOffer, ymd, scheduleProblem, transferPrice } from '../lib/pricing';
 import { mainBlocks } from '../lib/schedule';
 import { tr } from '../i18n';
+import { isValidContactPhone } from '../lib/phone';
 import { C } from '../lib/theme';
 
 const Check = ({ on, onPress, disabled, children }) => (
@@ -36,6 +38,7 @@ export default function BookingScreen({ route, navigation }) {
   const [start, setStart] = useState(fixedStart || (rangeStart && rangeStart > new Date() ? rangeStart : new Date()));
   const [time, setTime] = useState(fixedStart && !isTour ? `${String(fixedStart.getHours()).padStart(2, '0')}:${String(fixedStart.getMinutes()).padStart(2, '0')}` : isTour && listing.open_time ? listing.open_time.slice(0, 5) : '10:00');
   const [urgent, setUrgent] = useState(false); const [note, setNote] = useState(''); const [useBalance, setUseBalance] = useState(false);
+  const [contactPhone, setContactPhone] = useState('');
   const [left, setLeft] = useState(undefined);
 
   // pickup / drop-off / return: main booking only. It is the last section, unticked and closed
@@ -59,6 +62,7 @@ export default function BookingScreen({ route, navigation }) {
   const retDate = returnDate && returnDate >= start ? returnDate : endDate();
   const startDay = ymd(start); const endDay = ymd(endDate());
 
+  useEffect(() => { if (!contactPhone && profile?.phone) setContactPhone(profile.phone); }, [profile?.phone]);
   useEffect(() => { supabase.from('vehicles').select('*').eq('active', true).order('max_passengers').then(({ data }) => setVehicles(data || [])); }, []);
   useEffect(() => { supabase.rpc('get_availability', { p_listing: listing.id, p_start: ymd(start), p_end: ymd(endDate()) }).then(({ data }) => setLeft(data)); }, [start, days]);
   useEffect(() => { if (guests > maxGuests) setGuests(maxGuests); }, [maxGuests]);
@@ -94,9 +98,10 @@ export default function BookingScreen({ route, navigation }) {
 
   const next = () => {
     if (problem) return Alert.alert('Please check', problems.join('\n'));
+    if (!isValidContactPhone(contactPhone)) return Alert.alert('Phone number', 'Enter a valid phone number to continue.');
     if (!calc.items.length && !listing.entrance_fee_free) return Alert.alert('Select at least one item (activities can be skipped, but pick entrance / room / ticket)');
     navigation.navigate('AddOns', { listing, draft: {
-      guests, start: startDay, end: endDay, days, time, urgent, note,
+      guests, start: startDay, end: endDay, days, time, urgent, note, contactPhone,
       transfer: transfer ? { tripType, pickup: pickupLoc, pickupTime, dropoff: isReturn ? (sameDrop ? pickupLoc : dropLoc) : null,
         returnDate: isReturn ? ymd(retDate) : null, returnTime: isReturn ? returnTime : null,
         vehicle: v ? { id: v.id } : null, km, kmDrop: isReturn ? (sameDrop ? km : kmDrop) : null, price: tprice } : null,
@@ -137,6 +142,7 @@ export default function BookingScreen({ route, navigation }) {
         <Stepper label={tr('guests')} value={guests} onChange={setGuests} min={1} max={maxGuests} />
         {left !== undefined && <Text style={{ color: left === 0 ? C.danger : C.ok, fontWeight: '700' }}>{left === null ? '✅ Available' : left === 0 ? '❌ Fully booked for these dates' : `✅ ${left} places left for these dates`}</Text>}
 
+        <Label>Contact phone number</Label><PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} />
         <Label>Note to host</Label><Input multiline value={note} onChangeText={setNote} />
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ flex: 1 }}>{tr('urgent')}</Text><Switch value={urgent} onValueChange={setUrgent} trackColor={{ true: C.primary }} /></View>
         {bal > 0 && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ flex: 1 }}>Use account balance ({formatMoney(bal)})</Text><Switch value={useBalance} onValueChange={setUseBalance} trackColor={{ true: C.primary }} /></View>}

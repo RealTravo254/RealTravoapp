@@ -28,14 +28,21 @@ export default function BookingForms({ navigation }) {
   const create = async () => {
     if (!lid || !title.trim() || !(Number(price) > 0)) return Alert.alert('Choose the listing, a title and a price per person');
     const { data, error } = await supabase.rpc('create_booking_form', { p_listing: lid, p_title: title.trim(), p_price: Number(price) });
-    if (error) return Alert.alert(error.message.includes('plan') ? 'Buy a plan first' : 'Error', error.message, error.message.includes('plan') ? [{ text: 'See plans', onPress: () => navigation.navigate('Subscription') }, { text: 'Cancel' }] : undefined);
-    setTitle(''); setPrice(''); await load(); Alert.alert('Booking form ready', 'Share the link with your customers.', [{ text: 'Share now', onPress: () => share({ ...data, listings: { title: listings.find((x) => x.id === lid)?.title } }) }, { text: 'Later' }]);
+    if (error) return Alert.alert(error.message.toLowerCase().includes('plan') ? 'Booking form plan required' : 'Could not create form',
+      error.message.toLowerCase().includes('plan') ? 'Contact support to add a plan. In-app plan purchases are unavailable.' : error.message);
+    setTitle(''); setPrice(''); await load();
+    const created = { ...data, listings: { title: listings.find((x) => x.id === lid)?.title } };
+    Alert.alert('Booking form ready', 'Customers can open this form and book the linked listing.', [
+      { text: 'Open form', onPress: () => navigation.navigate('BookingForm', { slug: data.slug }) },
+      { text: 'Share now', onPress: () => share(created) },
+      { text: 'Later' },
+    ]);
   };
   const shown = forms.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
   return (
     <ScrollView keyboardShouldPersistTaps="handled">
       <Card><Text style={{ fontWeight: '800', fontSize: 16 }}>Forms you can still create: <Text style={{ color: C.primary }}>{left}</Text></Text>
-        <Btn kind="ghost" title="Buy or renew a plan" onPress={() => navigation.navigate('Subscription')} /></Card>
+        <Muted>Plans are managed outside the app.</Muted></Card>
       <Card>
         <Text style={{ fontWeight: '800', marginBottom: 4 }}>New booking form</Text>
         <Label>Listing</Label><SelectField value={lid} options={listings.map((l) => ({ value: l.id, label: l.title }))} onChange={setLid} placeholder="Choose one of your live listings" title="Your listings" />
@@ -48,6 +55,7 @@ export default function BookingForms({ navigation }) {
           <Text style={{ fontWeight: '800' }}>{f.title}</Text><Muted>{f.listings?.title} · {formatMoney(f.price)} per person · {f.active ? 'active' : 'turned off'}</Muted>
           <Text selectable style={{ color: C.primary, marginTop: 4 }}>{link(f)}</Text>
           <View style={{ flexDirection: 'row' }}>
+            <Btn style={{ flex: 1, margin: 2 }} kind="ghost" title="Open form" onPress={() => navigation.navigate('BookingForm', { slug: f.slug })} disabled={!f.active} />
             <Btn style={{ flex: 1, margin: 2 }} title="Share" onPress={() => share(f)} />
             <Btn style={{ flex: 1, margin: 2 }} kind="ghost" title={f.active ? 'Turn off' : 'Turn on'} onPress={async () => { await supabase.from('provider_booking_forms').update({ active: !f.active }).eq('id', f.id); load(); }} />
           </View>

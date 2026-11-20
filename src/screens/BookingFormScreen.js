@@ -6,12 +6,14 @@ import { Btn, Card, Input, Label, Muted, Stepper, Loader, Chip } from '../compon
 import TimeField from '../components/TimeField';
 import DateField from '../components/DateField';
 import PickupTimeField from '../components/PickupTimeField';
+import PhoneField from '../components/PhoneField';
 import RoutePreview from '../components/RoutePreview';
 import { getPosition, reverseInfo, getDistanceKm } from '../lib/geo';
 import { pickLocation } from '../lib/pickBus';
 import { ymd, scheduleProblem, transferPrice } from '../lib/pricing';
 import { abs, durationOf, hhmm, addDays, freeSlot, mainBlocks, addonClashes, overlapsBase, STAY } from '../lib/schedule';
 import { startPayment } from '../lib/payments';
+import { isValidContactPhone } from '../lib/phone';
 import { C } from '../lib/theme';
 
 const GAP = 30; // minutes between add-ons
@@ -34,10 +36,10 @@ const Seg = ({ options, value, onChange }) => (
 
 // A host's booking form opened from a link (travelapp://form/<code>)
 export default function BookingFormScreen({ route, navigation }) {
-  const { slug } = route.params; const { session, ensureLogin, formatMoney } = useAuth();
+  const { slug } = route.params; const { session, profile, ensureLogin, formatMoney } = useAuth();
   const [form, setForm] = useState(undefined); const [l, setL] = useState(null);
   const [date, setDate] = useState(new Date()); const [time, setTime] = useState('10:00'); const [guests, setGuests] = useState(1);
-  const [note, setNote] = useState(''); const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(''); const [contactPhone, setContactPhone] = useState(''); const [busy, setBusy] = useState(false);
 
   // pickup / drop-off / return: main booking only
   const [transfer, setTransfer] = useState(false); const [tripType, setTripType] = useState('oneway');
@@ -50,6 +52,7 @@ export default function BookingFormScreen({ route, navigation }) {
   // add-ons from other categories
   const [group, setGroup] = useState('all'); const [near, setNear] = useState(null); const [chosen, setChosen] = useState({});
 
+  useEffect(() => { if (!contactPhone && profile?.phone) setContactPhone(profile.phone); }, [profile?.phone]);
   useEffect(() => { (async () => {
     const { data: f } = await supabase.from('provider_booking_forms').select('*').eq('slug', slug).eq('active', true).maybeSingle();
     setForm(f || null); if (!f) return;
@@ -132,6 +135,7 @@ export default function BookingFormScreen({ route, navigation }) {
   const save = async (payNow) => {
     if (!ensureLogin(navigation, 'book')) return;
     if (problems.length) return Alert.alert('Please check', problems.join('\n'));
+    if (!isValidContactPhone(contactPhone)) return Alert.alert('Phone number', 'Enter a valid phone number to continue.');
     setBusy(true);
     try {
       const checks = [{ l, from: startDay, to: startDay }, ...extras.map((c) => ({ l: c.l, from: c.date, to: c.nights > 1 ? addDays(c.date, c.nights - 1) : c.date }))];
@@ -144,7 +148,7 @@ export default function BookingFormScreen({ route, navigation }) {
       let pkg = null;
       if (needPkg) {
         let pickAt = null; if (transfer) { const [h, m] = pickupTime.split(':').map(Number); const pt = new Date(`${startDay}T00:00:00`); pt.setHours(h, m, 0, 0); pickAt = pt.toISOString(); }
-        const r = await supabase.from('trip_packages').insert({ user_id: session.user.id, people: guests, start_date: startDay, end_date: lastDay,
+        const r = await supabase.from('trip_packages').insert({ user_id: session.user.id, people: guests, start_date: startDay, end_date: lastDay, contact_phone: contactPhone,
           trip_type: transfer ? tripType : null,
           pickup_location: transfer ? pickupLoc.label : null, pickup_lat: transfer ? pickupLoc.lat : null, pickup_lng: transfer ? pickupLoc.lng : null, pickup_time: pickAt,
           dropoff_location: drop?.label || null, dropoff_lat: drop?.lat ?? null, dropoff_lng: drop?.lng ?? null,
@@ -155,6 +159,7 @@ export default function BookingFormScreen({ route, navigation }) {
       // main booking: pickup, drop-off and return are saved here only
       const { data: b, error } = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: l.id, booking_form_id: form.id, package_id: pkg?.id || null,
         guests, start_date: startDay, end_date: startDay, nights: 1, start_time: time + ':00', note: note || null,
+        contact_phone: contactPhone,
         trip_type: transfer ? tripType : null,
         pickup_location: transfer ? pickupLoc.label : null, meeting_point: transfer ? pickupLoc.label : null, pickup_lat: transfer ? pickupLoc.lat : null, pickup_lng: transfer ? pickupLoc.lng : null,
         pickup_time: transfer ? pickupTime + ':00' : null,
@@ -167,7 +172,7 @@ export default function BookingFormScreen({ route, navigation }) {
       for (const c of extras) {                                                        // add-ons: no pickup fields
         const total = lineTotal(c); const end = c.nights > 1 ? addDays(c.date, c.nights - 1) : c.date;
         const r = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: c.l.id, package_id: pkg.id, parent_booking_id: b.id, guests,
-          start_date: c.date, end_date: end, nights: c.nights, start_time: c.time + ':00', subtotal: total, total }).select().single();
+          start_date: c.date, end_date: end, nights: c.nights, start_time: c.time + ':00', contact_phone: contactPhone, subtotal: total, total }).select().single();
         if (r.error) throw r.error;
         await supabase.from('booking_items').insert(c.items.map((p) => ({ booking_id: r.data.id, price_id: p.id, label: p.label, quantity: guests, unit_price: p.price,
           amount: Number(p.price) * (p.unit === 'per_group' ? 1 : guests) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1) })));
@@ -202,6 +207,7 @@ export default function BookingFormScreen({ route, navigation }) {
         {isEvent ? <Text style={{ alignSelf: 'center', fontWeight: '700' }}>🕒 {time}</Text> : <TimeField value={time} onChange={setTime} />}
       </View>
       <Stepper label="Guests" value={guests} onChange={setGuests} min={1} max={50} />
+      <Label>Contact phone number</Label><PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} />
 
       {needsMeeting && (
         <Card style={{ marginHorizontal: 0, marginTop: 10 }}>

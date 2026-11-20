@@ -214,11 +214,23 @@ export default function MyTrips({ navigation, route }) {
 
   return (
     <View style={{ flex: 1 }}>
-      <ScreenHeader title="My bookings" icon="ticket-outline" subtitle={`${tr('balance')}: ${formatMoney(profile?.balance)}${offline ? '  ·  offline copy' : ''}`} />
+      <ScreenHeader title="My trips" icon="ticket-outline" subtitle={`${tr('balance')}: ${formatMoney(profile?.balance)}${offline ? '  ·  offline copy' : ''}`} />
+      <View style={s.hero}>
+        <View style={s.heroIcon}><Ionicons name="airplane-outline" size={24} color={C.primary} /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={s.heroTitle}>Your trips, all in one place</Text>
+          <Text style={s.heroText}>Check booking details, payment status and travel plans.</Text>
+        </View>
+      </View>
       {Filters}
       {loading ? <Loader /> : <FlatList data={rows} keyExtractor={(i) => i.id}
         ListHeaderComponent={tab === 'upcoming' && transfers.length ? (<View><Text style={{ fontWeight: '800', fontSize: 16, margin: 12, marginBottom: 0 }}>✈️ Airport transfers</Text>{transfers.map((t) => (<Card key={t.id}><Text style={{ fontWeight: '700' }}>{t.pickup} → {t.dropoff}</Text><Muted>{new Date(t.pickup_time).toLocaleString()} · {t.passengers} passengers · {formatMoney(t.price)}</Muted><Text>Payment: {t.payment_status}</Text></Card>))}<Text style={{ fontWeight: '800', fontSize: 16, margin: 12, marginBottom: 0 }}>🏨 Bookings</Text></View>) : null}
-        ListEmptyComponent={<Muted style={{ textAlign: 'center', margin: 30 }}>{when === 'all' ? emptyText : 'No bookings for these dates.'}</Muted>}
+        ListEmptyComponent={<View style={s.empty}>
+          <View style={s.emptyIcon}><Ionicons name="calendar-outline" size={26} color={C.primary} /></View>
+          <Text style={s.emptyTitle}>{when === 'all' ? emptyText : 'No bookings for these dates.'}</Text>
+          <Muted style={{ textAlign: 'center' }}>Your bookings will appear here when you make them.</Muted>
+          {tab === 'upcoming' && when === 'all' && <Btn title="Explore places" onPress={() => navigation.navigate('Tabs', { screen: 'Explore' })} />}
+        </View>}
         ListFooterComponent={<Pager page={page} setPage={setPage} hasMore={more} />}
         renderItem={({ item: b }) => <TripRow b={b} navigation={navigation} onPay={pay} onCancel={cancelItem} feePct={feePct} formatMoney={formatMoney} />} />}
     </View>
@@ -226,6 +238,13 @@ export default function MyTrips({ navigation, route }) {
 }
 
 const s = StyleSheet.create({
+  hero: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 12, marginTop: 10, marginBottom: 4, padding: 14, borderRadius: 14, backgroundColor: '#E3EDE8' },
+  heroIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  heroTitle: { fontSize: 15, fontWeight: '800', color: C.text },
+  heroText: { marginTop: 3, fontSize: 12, color: C.muted },
+  empty: { alignItems: 'center', margin: 18, padding: 20, borderRadius: 16, backgroundColor: '#fff' },
+  emptyIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#E3EDE8', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  emptyTitle: { fontSize: 16, fontWeight: '800', textAlign: 'center', marginBottom: 5, color: C.text },
   filters: { backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1, borderColor: '#E6ECE8' },
   wrap: { flexDirection: 'row', flexWrap: 'wrap' },
   fLabel: { fontSize: 13, fontWeight: '700', color: '#5F6B66', marginTop: 6, marginBottom: 2 },

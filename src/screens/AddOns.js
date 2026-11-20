@@ -21,8 +21,9 @@ const GROUPS = {
 const GAP = 30; // minutes between add-ons
 
 export default function AddOns({ route, navigation }) {
-  const { session, formatMoney } = useAuth();
+  const { session, profile, formatMoney } = useAuth();
   const { listing, draft, main } = route.params;          // draft = not saved yet, main = already saved booking
+  const contactPhone = draft?.contactPhone || main?.contact_phone || profile?.phone || null;
   const guests = draft?.guests || main.guests; const date = draft?.start || main.start_date; const endDate = draft?.end || main.end_date; const nights = draft?.days || main.nights || 1;
   const mainTime = draft?.time || (main?.start_time ? main.start_time.slice(0, 5) : '10:00');
   const useBalance = draft?.useBalance;
@@ -78,7 +79,7 @@ export default function AddOns({ route, navigation }) {
       let pkg = null;
       if (needPkg) {
         let pickAt = null; if (t) { const [h, m] = t.pickupTime.split(':').map(Number); const pt = new Date(`${date}T00:00:00`); pt.setHours(h, m, 0, 0); pickAt = pt.toISOString(); }
-        const r = await supabase.from('trip_packages').insert({ user_id: session.user.id, people: guests, start_date: date, end_date: endDate,
+        const r = await supabase.from('trip_packages').insert({ user_id: session.user.id, people: guests, start_date: date, end_date: endDate, contact_phone: contactPhone,
           trip_type: t?.tripType || null,
           pickup_location: t?.pickup?.label || null, pickup_lat: t?.pickup?.lat ?? null, pickup_lng: t?.pickup?.lng ?? null, pickup_time: pickAt,
           dropoff_location: t?.dropoff?.label || null, dropoff_lat: t?.dropoff?.lat ?? null, dropoff_lng: t?.dropoff?.lng ?? null,
@@ -89,7 +90,7 @@ export default function AddOns({ route, navigation }) {
       let mainRow = main;
       if (draft) {
         const r = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: listing.id, package_id: pkg?.id || null, urgent: draft.urgent, guests, start_date: date, end_date: endDate, nights,
-          start_time: mainTime + ':00', note: draft.note, subtotal: draft.subtotal, discount: draft.discount, total: draft.total,
+          start_time: mainTime + ':00', note: draft.note, contact_phone: contactPhone, subtotal: draft.subtotal, discount: draft.discount, total: draft.total,
           // pickup, drop-off and return are saved on the main booking only
           trip_type: t?.tripType || null,
           pickup_location: t?.pickup?.label || null, meeting_point: t?.pickup?.label || null, pickup_lat: t?.pickup?.lat ?? null, pickup_lng: t?.pickup?.lng ?? null, pickup_time: t ? t.pickupTime + ':00' : null,
@@ -101,7 +102,7 @@ export default function AddOns({ route, navigation }) {
       for (const c of extras) {
         const total = lineTotal(c); const end = c.nights > 1 ? addDays(c.date, c.nights - 1) : c.date;
         const r = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: c.l.id, package_id: pkg.id, parent_booking_id: mainRow.id, guests, start_date: c.date, end_date: end, nights: c.nights,
-          start_time: c.time + ':00', subtotal: total, total }).select().single();        // no pickup fields on add-ons
+          start_time: c.time + ':00', contact_phone: contactPhone, subtotal: total, total }).select().single();        // no pickup fields on add-ons
         if (r.error) throw r.error;
         await supabase.from('booking_items').insert(c.items.map((p) => ({ booking_id: r.data.id, price_id: p.id, label: p.label, quantity: guests, unit_price: p.price,
           amount: Number(p.price) * (p.unit === 'per_group' ? 1 : guests) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1) })));
