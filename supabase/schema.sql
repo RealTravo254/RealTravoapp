@@ -129,7 +129,7 @@ create table destinations (
 create table trip_packages (
   id uuid primary key default gen_random_uuid(), user_id uuid not null references profiles(id) on delete cascade,
   title text, is_custom boolean not null default false, people int not null default 1, adults int, children int not null default 0, start_date date, end_date date, trip_type text, pickup_time timestamptz,
-  dropoff_location text, dropoff_lat double precision, dropoff_lng double precision, return_date date, return_time time, contact_phone text,
+  dropoff_location text, dropoff_lat double precision, dropoff_lng double precision, return_date date, return_time time, contact_phone text, contact_email text,
   pickup_location text, pickup_lat double precision, pickup_lng double precision,
   vehicle_id uuid references vehicles(id), pickup_people int, distance_km numeric,
   transfer_price numeric not null default 0, total numeric not null default 0,
@@ -141,7 +141,7 @@ create table bookings (
   status booking_status not null default 'pending', payment_status payment_status not null default 'unpaid',
   urgent boolean not null default false, respond_by timestamptz, start_date date, end_date date, start_time time, nights int, trip_type text,
   guests int not null default 1 check (guests > 0), adults int, children int not null default 0, pickup_location text, pickup_lat double precision, pickup_lng double precision,
-  pickup_time time, return_date date, return_time time, contact_phone text, meeting_point text, note text,
+  pickup_time time, return_date date, return_time time, contact_phone text, contact_email text, meeting_point text, note text,
   subtotal numeric not null default 0, discount numeric not null default 0, total numeric not null default 0, commission numeric not null default 0,
   qr_token uuid not null default gen_random_uuid(), checked_in_at timestamptz, decline_reason text, created_at timestamptz not null default now());
 create index bookings_user on bookings(user_id); create index bookings_listing on bookings(listing_id);

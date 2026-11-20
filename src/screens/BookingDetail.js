@@ -35,6 +35,7 @@ const ticketHtml = (b, items, qr, formatMoney) => `<html><body style="font-famil
 <h1 style="color:#1B4432">Booking confirmation</h1><h2>${esc(b.listings?.title)}</h2>
 <p><b>Reference:</b> ${esc(b.id)}</p><p><b>Dates:</b> ${esc(b.start_date)} to ${esc(b.end_date)}</p>
 <p><b>Guests:</b> ${b.adults ?? b.guests} adults${b.children ? `, ${b.children} children` : ''}</p><p><b>Status:</b> ${esc(b.status)} · <b>Payment:</b> ${esc(b.payment_status)}</p>
+${b.contact_email ? `<p><b>Contact email:</b> ${esc(b.contact_email)}</p>` : ''}
 ${items.map((i) => `<p>• ${esc(i.label)} × ${i.quantity} — ${esc(formatMoney(i.amount))}</p>`).join('')}
 <h3>Total: ${esc(formatMoney(b.total))}</h3>${qr ? `<img src="${qr}" width="180" height="180"/><p>Show this QR or give the host your booking ID at check-in.</p>` : `<p>Give the host your booking ID at check-in.</p>`}</body></html>`;
 
@@ -180,6 +181,7 @@ export default function BookingDetail({ route, navigation }) {
         {!!b.start_time && <Row label="Start time" value={hm(b.start_time)} />}
         {Number(b.nights) > 1 && <Row label="Nights / days" value={String(b.nights)} />}
         <Row label="Guests" value={`${b.adults ?? b.guests} adults${b.children ? ` · ${b.children} children` : ''}`} />
+        {!!b.contact_email && <Row label="Contact email" value={b.contact_email} />}
         <Row label="Booking ID (host check-in)" value={b.id} />
         {!!b.note && <Row label="Your note" value={b.note} />}
         {!!b.urgent && <Row label="Priority" value="Urgent" color="#B42318" />}

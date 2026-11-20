@@ -10,7 +10,7 @@ import PhoneField from '../components/PhoneField';
 import RoutePreview from '../components/RoutePreview';
 import Img from '../components/Img';
 import { pickLocation } from '../lib/pickBus';
-import { getPosition, reverseInfo } from '../lib/geo';
+import { getPosition, matchRegion, reverseInfo } from '../lib/geo';
 import { ymd, scheduleProblem, transferPrice } from '../lib/pricing';
 import { addDays } from '../lib/schedule';
 import { startPayment } from '../lib/payments';
@@ -20,20 +20,21 @@ import { C } from '../lib/theme';
 const GAP = 30; // minutes between two activities
 const PAGE_SIZE = 8;
 const STAY = ['hotel', 'resort', 'campsite', 'airbnb'];
+const ACTIVITY_CATS = ['attraction', 'activity', 'guide'];
+const STAY_CATS = ['hotel', 'resort', 'campsite', 'attraction', 'airbnb', 'activity', 'guide'];
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Remove rows that share the same id, so React never sees two children with the same key.
 const uniq = (arr) => { const seen = new Set(); return (arr || []).filter((r) => r && !seen.has(r.id) && seen.add(r.id)); };
 
-// Every category a guest can add to a trip. "all" shows everything in the chosen place.
-const ALL_CATS = ['hotel', 'resort', 'campsite', 'attraction', 'airbnb', 'activity', 'guide'];
 const CATS = {
-  all: { label: '🌍 All', cats: ALL_CATS },
-  stay: { label: '🛏️ Accommodation', cats: ['hotel', 'resort', 'campsite', 'attraction', 'airbnb'], stay: true },
+  all: { label: 'All', cats: [] },
   hotel: { label: '🏨 Hotels & resorts', cats: ['hotel', 'resort'] },
   campsite: { label: '🏕️ Campsites', cats: ['campsite'] },
   airbnb: { label: '🏠 Airbnb', cats: ['airbnb'] },
   resort: { label: '🌴 Resorts', cats: ['resort'] },
   attraction: { label: '🏞️ Attractions', cats: ['attraction'] },
+  stayAttraction: { label: '🏞️ Places with accommodation', cats: ['attraction'] },
   activity: { label: '🎯 Activities', cats: ['activity'] },
   guide: { label: '🧭 Guides', cats: ['guide'] },
   tour: { label: '🚌 Tours & trips', cats: ['activity', 'guide'], tour: true },
@@ -47,7 +48,7 @@ const MAIN_KINDS = {
   resort: ['room'], attraction: ['entrance'],
   activity: ['activity', 'ticket'], guide: ['guide'],
 };
-const STEPS = ['Where', 'Choose', 'Pickup', 'Pay'];
+const STEPS = ['Where & when', 'Choose', 'Pickup', 'Review'];
 const ts = (d, t) => new Date(`${d}T${t}:00`).getTime() / 60000;
 const isStay = (c) => !!c.stay;
 const blk = (c) => { const s = ts(c.date, c.time); return { label: `“${c.l.title}”`, s, e: isStay(c) ? s + c.nights * 1440 - 180 : s + (c.info?.duration_minutes || 120) }; };
@@ -99,16 +100,20 @@ export default function CustomTrip({ navigation }) {
   const [step, setStep] = useState(0); const [busy, setBusy] = useState(false); const [feePct, setFeePct] = useState(20);
   // 1 where
   const [country, setCountry] = useState(''); const [region, setRegion] = useState(''); const [regions, setRegions] = useState([]); const [mine, setMine] = useState(null);
+  const [destination, setDestination] = useState(null);
   // 2 choose
   const [adults, setAdults] = useState(2); const [children, setChildren] = useState(0); const people = adults + children;
   const [days, setDays] = useState(3); const [start, setStart] = useState(new Date(Date.now() + 86400000));
-  const [cat, setCat] = useState('all'); const [list, setList] = useState(null); const [listError, setListError] = useState(''); const [total, setTotal] = useState(0); const [page, setPage] = useState(0); const [chosen, setChosen] = useState({}); const [reload, setReload] = useState(0);
+  const [section, setSection] = useState('activities'); const [cat, setCat] = useState('all'); const [list, setList] = useState(null); const [listError, setListError] = useState(''); const [total, setTotal] = useState(0); const [page, setPage] = useState(0); const [chosen, setChosen] = useState({}); const [reload, setReload] = useState(0);
   const [stayAvailability, setStayAvailability] = useState(null);
   // 3 pickup
   const [mode, setMode] = useState('none'); // none | oneway | return
   const [pickup, setPickup] = useState(null); const [pickupTime, setPickupTime] = useState('08:00'); const [vehicles, setVehicles] = useState([]); const [vid, setVid] = useState(null); const [km, setKm] = useState(null);
   const [pickupDate, setPickupDate] = useState(null); const [returnDate, setReturnDate] = useState(null); const [returnTime, setReturnTime] = useState('17:00'); const [returnKm, setReturnKm] = useState(null);
   const [contactPhone, setContactPhone] = useState('');
+  const accountEmail = session?.user?.email || '';
+  const [useAccountEmail, setUseAccountEmail] = useState(true); const [contactEmail, setContactEmail] = useState(accountEmail);
+  const bookingEmail = (useAccountEmail ? accountEmail : contactEmail).trim();
 
   const startDay = ymd(start); const endDay = addDays(startDay, days - 1);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -119,22 +124,31 @@ export default function CustomTrip({ navigation }) {
     supabase.from('app_settings').select('custom_cancel_fee_percent').eq('id', 1).maybeSingle().then(({ data }) => data && setFeePct(Number(data.custom_cancel_fee_percent ?? 20)));
   }, []);
   useEffect(() => { if (!contactPhone && profile?.phone) setContactPhone(profile.phone); }, [profile?.phone]);
+  useEffect(() => { if (!contactEmail && accountEmail) setContactEmail(accountEmail); }, [accountEmail]);
 
   useEffect(() => { setRegion(''); if (!country) return setRegions([]);
     supabase.from('country_divisions').select('id,name, countries!inner(name)').eq('countries.name', country).eq('active', true).order('name').order('id').then(({ data }) => setRegions(uniq(data))); }, [country]);
 
+  useEffect(() => {
+    if (!destination?.parts?.length || destination.country !== country || !regions.length) return;
+    const match = matchRegion(destination.parts, regions.map((r) => r.name));
+    if (match) setRegion(match);
+  }, [destination, country, regions]);
+
   // load one page of listings (filters change -> back to page 1)
   useEffect(() => {
     if (step !== 1) return;
-    const key = [cat, country, region].join('|');
+    const key = [section, cat, country, region].join('|');
     if (keyRef.current !== key) { keyRef.current = key; if (page !== 0) { setPage(0); return; } }
     const id = ++reqId.current; setList(null); setListError('');
     const g = CATS[cat];
+    const categories = cat === 'all' ? (section === 'accommodation' ? STAY_CATS : ACTIVITY_CATS) : g.cats;
     let q = supabase.from('listings')
       .select('id,title,category,region,country,location_name,lat,lng,photos,facilities,accommodation_available,rating_avg,rating_count,entrance_fee_free,schedule_type,listing_prices(id,kind,label,price,unit,audience,is_optional)', { count: 'exact' })
-      .eq('status', 'approved').is('deleted_at', null).in('category', g.cats);
+      .eq('status', 'approved').is('deleted_at', null).in('category', categories);
     if (g.tour) q = q.eq('schedule_type', 'tour');
-    if (g.stay) q = q.or('category.in.(hotel,resort,campsite,airbnb),accommodation_available.eq.true');
+    if (section === 'accommodation') q = q.or('category.in.(hotel,resort,campsite,airbnb),accommodation_available.eq.true');
+    if (section === 'accommodation' && cat === 'stayAttraction') q = q.eq('accommodation_available', true);
     if (country) q = q.eq('country', country);
     if (region) q = q.eq('region', region);
     // "id" is the tie-breaker so listings with the same title keep a stable order between pages
@@ -143,7 +157,7 @@ export default function CustomTrip({ navigation }) {
       if (error) { setList([]); setTotal(0); setListError(error.message); return; }
       setList(uniq(data)); setTotal(count || 0);
     });
-  }, [step, cat, country, region, page, reload]);
+  }, [step, section, cat, country, region, page, reload]);
 
   useEffect(() => {
     if (step !== 1 || list === null) return undefined;
@@ -260,7 +274,6 @@ export default function CustomTrip({ navigation }) {
   const next = () => {
     if (step === 0 && !country) return Alert.alert('Where do you want to go?', 'Pick a country to find available places.');
     if (step === 1) {
-      if (!isValidContactPhone(contactPhone)) return Alert.alert('Phone number', 'Enter a valid phone number to continue.');
       if (!items.length) return Alert.alert('Add at least one stay, tour or activity');
       if (problems.length) return Alert.alert('Please check', problems.join('\n'));
     }
@@ -270,9 +283,19 @@ export default function CustomTrip({ navigation }) {
 
   const useMine = async () => { const p = await getPosition(); if (!p) return; const i = await reverseInfo(p.lat, p.lng); setPickup({ lat: p.lat, lng: p.lng, label: i.label }); };
   const onMap = async () => { const r = await pickLocation(navigation, 'Choose your pickup location'); if (r) setPickup(r); };
+  const onDestinationMap = async () => {
+    const r = await pickLocation(navigation, 'Choose your destination');
+    if (!r) return;
+    const info = await reverseInfo(r.lat, r.lng);
+    setDestination({ ...r, label: info.label || r.label, country: info.country, parts: info.parts });
+    setRegion('');
+    if (info.country) setCountry(info.country);
+  };
+  const selectCountry = (value) => { setCountry(value); setRegion(''); setDestination(null); };
 
   const pay = async () => {
     if (!isValidContactPhone(contactPhone)) return Alert.alert('Phone number', 'Enter a valid phone number to continue.');
+    if (!EMAIL.test(bookingEmail)) return Alert.alert('Email address', 'Enter a valid contact email address to continue.');
     if (problems.length || pickupProblems.length) return Alert.alert('Please check', [...problems, ...pickupProblems].join('\n'));
     setBusy(true); let pkgId = null;
     try {
@@ -286,13 +309,13 @@ export default function CustomTrip({ navigation }) {
         pickup_location: pickup?.label || null, pickup_lat: pickup?.lat || null, pickup_lng: pickup?.lng || null, pickup_time: pickAt,
         dropoff_location: isReturn ? pickup?.label || null : null, dropoff_lat: isReturn ? pickup?.lat || null : null, dropoff_lng: isReturn ? pickup?.lng || null : null,
         return_date: isReturn ? returnDay : null, return_time: isReturn ? returnTime + ':00' : null,
-        contact_phone: contactPhone, vehicle_id: mode !== 'none' ? v.id : null,
+        contact_phone: contactPhone, contact_email: bookingEmail, vehicle_id: mode !== 'none' ? v.id : null,
         pickup_people: mode !== 'none' ? people : null, distance_km: mode !== 'none' ? km : null, transfer_price: tprice, total: grand }).select().single();
       if (r.error) throw r.error; pkgId = r.data.id;
       for (const c of items) {
         const total = lineTotal(c, adults, children); const stay = isStay(c);
         const b = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: c.l.id, package_id: pkgId, guests: people, start_date: c.date, end_date: stay ? addDays(c.date, c.nights - 1) : c.date,
-          adults, children, nights: stay ? c.nights : 1, start_time: c.time + ':00', contact_phone: contactPhone, trip_type: mode === 'none' ? null : mode,
+          adults, children, nights: stay ? c.nights : 1, start_time: c.time + ':00', contact_phone: contactPhone, contact_email: bookingEmail, trip_type: mode === 'none' ? null : mode,
           pickup_location: pickup?.label || null, pickup_lat: pickup?.lat || null, pickup_lng: pickup?.lng || null, pickup_time: mode !== 'none' ? pickupTime + ':00' : null,
           return_date: isReturn ? returnDay : null, return_time: isReturn ? returnTime + ':00' : null, subtotal: total, total }).select().single();
         if (b.error) throw b.error;
@@ -330,40 +353,50 @@ export default function CustomTrip({ navigation }) {
       <View style={{ padding: 12 }}>
         {/* ---------------- STEP 1: WHERE ---------------- */}
         {step === 0 && <>
-          <Text style={{ fontSize: 18, fontWeight: '800', marginTop: 8 }}>Where do you want to go?</Text>
-          {mine?.country ? <Card onPress={() => { setCountry(mine.country); if (mine.region) setRegion(mine.region); }} style={{ marginHorizontal: 0, backgroundColor: '#EAF3EE' }}>
+          <Text style={{ fontSize: 18, fontWeight: '800', marginTop: 8 }}>Where and when do you want to travel?</Text>
+          {mine?.country ? <Card onPress={() => { selectCountry(mine.country); if (mine.region) setRegion(mine.region); }} style={{ marginHorizontal: 0, backgroundColor: '#EAF3EE' }}>
             <Text style={{ fontWeight: '800' }}>⭐ Suggested for you</Text><Muted>{mine.region ? `${mine.region}, ` : ''}{mine.country} (from your profile). Tap to use.</Muted></Card> : null}
-          <Label>Country</Label><CountryPicker value={country} onChange={setCountry} />
+          <Label>Country</Label><CountryPicker value={country} onChange={selectCountry} />
+          <View style={{ flexDirection: 'row', marginTop: 4 }}>
+            <Btn style={{ flex: 1 }} kind="ghost" title="🗺️ Choose a place on the map" onPress={onDestinationMap} />
+          </View>
+          {destination && <Card style={{ marginHorizontal: 0, backgroundColor: '#EAF3EE' }}>
+            <Text style={{ fontWeight: '700' }}>📍 Map destination</Text><Muted>{destination.label}{destination.country ? ` · ${destination.country}` : ''}</Muted>
+          </Card>}
           {regions.length > 0 && <><Label>Region (optional)</Label>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
               <View style={{ marginBottom: 6 }}><Chip label="All regions" active={!region} onPress={() => setRegion('')} /></View>
               {regions.map((r) => <View key={r.id} style={{ marginBottom: 6 }}><Chip label={r.name} active={region === r.name} onPress={() => setRegion(r.name)} /></View>)}
             </View></>}
+          <Card style={{ marginHorizontal: 0, marginTop: 12 }}>
+            <Text style={{ fontWeight: '800', marginBottom: 6 }}>Trip dates and travelers</Text>
+            <DateField value={start} minimumDate={new Date()} onChange={(d) => { setStart(d); setChosen({}); }} />
+            <Stepper label="Days" value={days} onChange={(n) => { setDays(n); setChosen({}); }} min={1} max={60} />
+            <Stepper label="Adults" value={adults} onChange={setAdults} min={1} max={500} />
+            <Stepper label="Children" value={children} onChange={setChildCount} min={0} max={500} />
+            <Muted>{startDay} → {endDay} · {people} travelers{region ? ` · ${region}` : ''}{country ? `, ${country}` : ''}</Muted>
+          </Card>
         </>}
 
         {/* ---------------- STEP 2: CHOOSE ---------------- */}
         {step === 1 && <>
-          <Card style={{ marginHorizontal: 0 }}>
-            <Text style={{ fontWeight: '800', marginBottom: 6 }}>Your trip</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}><DateField style={{ flex: 1 }} value={start} minimumDate={new Date()} onChange={(d) => { setStart(d); setChosen({}); }} /></View>
-            <Stepper label="Days" value={days} onChange={(n) => { setDays(n); setChosen({}); }} min={1} max={60} />
-            <Stepper label="Adults" value={adults} onChange={setAdults} min={1} max={500} />
-            <Stepper label="Children" value={children} onChange={setChildCount} min={0} max={500} />
-            <Muted>{people} travelers total · daily activities are optional</Muted>
-            <Label>Contact phone number</Label><PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} />
-            <Muted>{startDay} → {endDay}{country ? ` · ${region ? region + ', ' : ''}${country}` : ''}</Muted>
-          </Card>
-
           <View onLayout={(e) => { listY.current = e.nativeEvent.layout.y; }}>
-            <Text style={{ fontSize: 18, fontWeight: '800', marginTop: 8 }}>What do you want to book?</Text>
-            <Muted>Choose cards to add them to a day. You can skip any day and book without opening a listing detail page.</Muted>
+            <Text style={{ fontSize: 18, fontWeight: '800', marginTop: 8 }}>Choose what to do and where to stay</Text>
+            <Muted>{startDay} → {endDay} · {people} travelers. Add activities, guided tours, facilities, and accommodation directly from the cards.</Muted>
+            <View style={{ flexDirection: 'row', marginTop: 8 }}>
+              <Chip label="🎯 Activities & facilities" active={section === 'activities'} onPress={() => { setSection('activities'); setCat('all'); setPage(0); }} />
+              <Chip label="🛏️ Accommodation" active={section === 'accommodation'} onPress={() => { setSection('accommodation'); setCat('all'); setPage(0); }} />
+            </View>
+            <Text style={{ fontSize: 16, fontWeight: '800', marginTop: 8 }}>{section === 'activities' ? 'Activities, guided trips & facilities' : 'Hotels, resorts, campsites & Airbnb'}</Text>
+            <Muted>{section === 'activities' ? 'Select activities and tours, then choose any paid on-site options on the card.' : 'Only stays with available capacity for your dates and group size are shown.'}</Muted>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8, marginBottom: 4 }}>
-              {Object.entries(CATS).map(([k, g]) => <Chip key={k} label={g.label} active={cat === k} onPress={() => setCat(k)} />)}
+              {(section === 'activities' ? ['all', 'attraction', 'activity', 'guide', 'tour'] : ['all', 'hotel', 'resort', 'campsite', 'airbnb', 'stayAttraction'])
+                .map((k) => <Chip key={k} label={k === 'all' ? (section === 'activities' ? 'All activities' : 'All accommodation') : CATS[k].label} active={cat === k} onPress={() => { setCat(k); setPage(0); }} />)}
             </ScrollView>
             {list !== null && <Muted style={{ marginBottom: 4 }}>{total} {total === 1 ? 'place' : 'places'} found</Muted>}
           </View>
 
-          {list === null || (list.some((x) => STAY.includes(x.category) || x.accommodation_available) && stayAvailability === null) ? <Loader /> : listError ? <Card style={{ marginHorizontal: 0 }}><Muted>{listError}</Muted><Btn kind="ghost" title="Try again" onPress={() => setReload((n) => n + 1)} /></Card> : !visibleList?.length ? <Muted style={{ textAlign: 'center', margin: 24 }}>{list.length ? 'No accommodation is available for these dates and group size.' : 'Nothing here yet. Try another region or category.'}</Muted> :
+          {list === null || (list.some((x) => STAY.includes(x.category) || x.accommodation_available) && stayAvailability === null) ? <Loader /> : listError ? <Card style={{ marginHorizontal: 0 }}><Muted>{listError}</Muted><Btn kind="ghost" title="Try again" onPress={() => setReload((n) => n + 1)} /></Card> : !visibleList?.length ? <Muted style={{ textAlign: 'center', margin: 24 }}>{list.length ? (section === 'accommodation' ? 'No accommodation is available for these dates and group size.' : 'No places are available for this trip.') : 'Nothing here yet. Try another region or category.'}</Muted> :
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>{visibleList.map((x) => { const c = chosen[x.id]; const from = cardFrom(x); const freeEntry = x.entrance_fee_free && x.category === 'attraction'; const cover = x.photos?.[0] || null; return (
               <Card key={x.id} onPress={() => toggle(x)} style={{ width: '49%', marginHorizontal: 0, padding: 0, overflow: 'hidden', borderWidth: 2, borderColor: c ? C.primary : '#E5E7EB', backgroundColor: c ? '#F3F9F5' : '#fff' }}>
                 <View>
@@ -419,7 +452,13 @@ export default function CustomTrip({ navigation }) {
           {items.length > 0 && <Card style={{ marginHorizontal: 0, backgroundColor: '#EAF3EE' }}>
             <Text style={{ fontWeight: '800' }}>Your list ({items.length})</Text>
             {items.map((c) => <Muted key={c.l.id}>{c.date} {c.time} · {c.l.title}{isStay(c) ? ` · ${c.nights} night(s)` : ''}</Muted>)}
-            <Text style={{ fontWeight: '800', marginTop: 4 }}>Total so far: {formatMoney(itemsTotal)}</Text></Card>}
+            <Text style={{ fontWeight: '800', marginTop: 4 }}>Total so far: {formatMoney(itemsTotal)}</Text>
+            <Text style={{ fontWeight: '800', marginTop: 12 }}>Need pickup or return transport?</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 }}>
+              {[['none', 'No pickup'], ['oneway', 'Pickup only'], ['return', 'Pickup + return']].map(([value, label]) => <Chip key={value} label={label} active={mode === value} onPress={() => setMode(value)} />)}
+            </View>
+            <Muted>Choose a pickup place, time, and vehicle in the next step. Transport cost is added to your total.</Muted>
+          </Card>}
           {problems.map((p, i) => <Text key={i} style={{ color: C.danger, fontWeight: '700', marginTop: 4 }}>⚠️ {p}</Text>)}
         </>}
 
@@ -479,6 +518,16 @@ export default function CustomTrip({ navigation }) {
           <Card style={{ marginHorizontal: 0, backgroundColor: '#FFF8E6' }}>
             <Text style={{ fontWeight: '800' }}>About cancelling</Text>
             <Muted>The whole booking cannot be cancelled. You can cancel single items later in My trips; a {feePct}% cancellation fee applies to each item you cancel.</Muted></Card>
+          <Card style={{ marginHorizontal: 0 }}>
+            <Text style={{ fontWeight: '800' }}>Booking contact</Text>
+            <Muted>Your booking details will be saved with this email address.</Muted>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 }}>
+              {accountEmail ? <Chip label={`Use account email: ${accountEmail}`} active={useAccountEmail} onPress={() => setUseAccountEmail(true)} /> : null}
+              <Chip label="Use a different email" active={!useAccountEmail} onPress={() => setUseAccountEmail(false)} />
+            </View>
+            {!useAccountEmail && <><Label>Contact email</Label><Input value={contactEmail} onChangeText={setContactEmail} placeholder="name@example.com" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" /></>}
+            <Label>Contact phone number</Label><PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} />
+          </Card>
           <Btn title={busy ? 'Please wait…' : `Pay ${formatMoney(grand)}`} onPress={pay} disabled={busy} />
         </>}
 
