@@ -34,9 +34,9 @@ const statusStyle = (st) => STATUS_STYLE[st] || { label: String(st || '-'), colo
 const ticketHtml = (b, items, qr, formatMoney) => `<html><body style="font-family:Arial;padding:24px">
 <h1 style="color:#1B4432">Booking confirmation</h1><h2>${esc(b.listings?.title)}</h2>
 <p><b>Reference:</b> ${esc(b.id)}</p><p><b>Dates:</b> ${esc(b.start_date)} to ${esc(b.end_date)}</p>
-<p><b>Guests:</b> ${b.guests}</p><p><b>Status:</b> ${esc(b.status)} · <b>Payment:</b> ${esc(b.payment_status)}</p>
+<p><b>Guests:</b> ${b.adults ?? b.guests} adults${b.children ? `, ${b.children} children` : ''}</p><p><b>Status:</b> ${esc(b.status)} · <b>Payment:</b> ${esc(b.payment_status)}</p>
 ${items.map((i) => `<p>• ${esc(i.label)} × ${i.quantity} — ${esc(formatMoney(i.amount))}</p>`).join('')}
-<h3>Total: ${esc(formatMoney(b.total))}</h3>${qr ? `<img src="${qr}" width="180" height="180"/><p>Show this QR at check-in.</p>` : ''}</body></html>`;
+<h3>Total: ${esc(formatMoney(b.total))}</h3>${qr ? `<img src="${qr}" width="180" height="180"/><p>Show this QR or give the host your booking ID at check-in.</p>` : `<p>Give the host your booking ID at check-in.</p>`}</body></html>`;
 
 const Section = ({ icon, title, children }) => (
   <View style={s.card}>
@@ -179,7 +179,8 @@ export default function BookingDetail({ route, navigation }) {
         <Row label="Date" value={sameDay(b.start_date, b.end_date) ? fmtDate(b.start_date) : `${fmtDate(b.start_date)} to ${fmtDate(b.end_date)}`} />
         {!!b.start_time && <Row label="Start time" value={hm(b.start_time)} />}
         {Number(b.nights) > 1 && <Row label="Nights / days" value={String(b.nights)} />}
-        <Row label="Guests" value={String(b.guests)} />
+        <Row label="Guests" value={`${b.adults ?? b.guests} adults${b.children ? ` · ${b.children} children` : ''}`} />
+        <Row label="Booking ID (host check-in)" value={b.id} />
         {!!b.note && <Row label="Your note" value={b.note} />}
         {!!b.urgent && <Row label="Priority" value="Urgent" color="#B42318" />}
         {!!b.parent_booking_id && (

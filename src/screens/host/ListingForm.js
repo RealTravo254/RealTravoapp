@@ -39,7 +39,7 @@ const PROV_LABEL = { hotel: 'Hotel / Resort', campsite: 'Campsite', attraction: 
 const SLOT = { hotel: 'lodging', resort: 'lodging', campsite: 'campsite', attraction: 'attraction' };
 
 // The "main" price each category must have
-const MAIN = { hotel: 'room', resort: 'room', guide: 'guide' }; // everything else = entrance
+const MAIN = { hotel: 'room', resort: 'room', campsite: 'room', airbnb: 'room', guide: 'guide' }; // everything else = entrance
 const MAIN_TXT = {
   entrance: { title: 'Entrance fee', hint: 'What guests pay to enter, in USD. Add more rows for child, foreigner, resident, etc.' },
   room: { title: 'Room price', hint: 'Price per night in USD. Add a row for each room type.' },
@@ -75,7 +75,11 @@ export default function ListingForm({ route, navigation }) {
   const [f, setF] = useState({ category: listing?.category || allOpts[0] || 'hotel', title: listing?.title || '', description: listing?.description || '',
     country: listing?.country || provider?.country || '', region: listing?.region || provider?.region || '', location_name: listing?.location_name || '',
     lat: listing?.lat, lng: listing?.lng, google_place_id: listing?.google_place_id, hours: hoursFrom(listing),
-    entrance_fee_free: !!listing?.entrance_fee_free, amenities: old.filter((a) => AMENITIES.includes(a)), other: old.filter((a) => !AMENITIES.includes(a)).join(', '),
+    entrance_fee_free: !!listing?.entrance_fee_free,
+    accommodation_available: listing
+      ? (listing.accommodation_available ?? ['hotel', 'resort', 'campsite', 'airbnb'].includes(listing.category))
+      : ['hotel', 'resort', 'campsite', 'airbnb'].includes(allOpts[0] || 'hotel'),
+    amenities: old.filter((a) => AMENITIES.includes(a)), other: old.filter((a) => !AMENITIES.includes(a)).join(', '),
     photos: [...new Set(listing?.photos || [])], event_date: listing?.event_date, schedule_type: listing?.schedule_type || 'always', starts_on: listing?.starts_on || '', ends_on: listing?.ends_on || '',
     tour_time: listing?.open_time ? listing.open_time.slice(0, 5) : '08:00', one_date: listing?.event_date ? ymd(new Date(listing.event_date)) : '',
     one_time: listing?.event_date ? `${String(new Date(listing.event_date).getHours()).padStart(2, '0')}:${String(new Date(listing.event_date).getMinutes()).padStart(2, '0')}` : '18:00', daily_limit: listing?.daily_limit ? String(listing.daily_limit) : '', pickup_times: listing?.pickup_times || [] });
@@ -94,6 +98,7 @@ export default function ListingForm({ route, navigation }) {
   const [busy, setBusy] = useState(null); // text while general photos are picking/uploading
   const [rowBusy, setRowBusy] = useState(null); // index of the price row whose photo is uploading
   const set = (k) => (v) => setF((x) => ({ ...x, [k]: v }));
+  const setCategory = (category) => setF((x) => ({ ...x, category, accommodation_available: ['hotel', 'resort', 'campsite', 'airbnb'].includes(category) }));
 
   const mainKind = MAIN[f.category] || 'entrance';
   const canBeFree = mainKind === 'entrance';
@@ -165,6 +170,10 @@ export default function ListingForm({ route, navigation }) {
     if (!catOptions.includes(f.category)) return Alert.alert('Category', SLOT[f.category] ? `You already listed your ${CAT_LABEL[f.category].toLowerCase()}. You can only list one.` : 'Your registration cannot list this type.');
     if (!f.title || !f.lat) return Alert.alert('Title and a map location are required');
     if (!isFree && !prices.some((p) => p.kind === mainKind && Number(p.price) > 0)) return Alert.alert(MAIN_TXT[mainKind].title, `Enter the ${MAIN_TXT[mainKind].title.toLowerCase()} (more than 0)${canBeFree ? ', or switch on "Free entrance"' : ''}.`);
+    if (f.accommodation_available && mainKind !== 'room' && !prices.some((p) => p.kind === 'room' && Number(p.price) > 0))
+      return Alert.alert('Accommodation price', 'Add at least one room or stay price per night.');
+    if (f.accommodation_available && (!Number.isInteger(Number(f.daily_limit)) || Number(f.daily_limit) < 1))
+      return Alert.alert('Accommodation availability', 'Enter the maximum number of guests you can host per day so booked dates can be filtered.');
     for (const d of DAYS) { const h = f.hours[d]; if (!h.closed && (!TIME.test(h.open || '') || !TIME.test(h.close || '') || h.close <= h.open)) return Alert.alert('Opening hours', `${DAY_NAMES[d]}: use HH:MM (24h) and closing after opening, or mark it closed.`); }
     const openDays = DAYS.filter((d) => !f.hours[d].closed); if (!openDays.length) return Alert.alert('Opening hours', 'Open at least one day.');
     for (const p of prices) if (needsDetails(p.kind) && (!p.label || !p.description || !p.photo_url)) return Alert.alert('Facilities & activities', 'Every facility and activity needs a name, a description and one photo.');
@@ -179,7 +188,7 @@ export default function ListingForm({ route, navigation }) {
     let eventIso = null;
     if (sched === 'one_time') { if (!f.one_date) return Alert.alert('Date', 'Choose the date.'); const at = new Date(`${f.one_date}T${f.one_time}:00`); if (at.getTime() < Date.now()) return Alert.alert('Date', 'Choose a date and time in the future.'); eventIso = at.toISOString(); }
     const row = { provider_id: providerId, owner_id: session.user.id, city: provider?.city || listing?.city || null, category: f.category, title: f.title, description: f.description, country: f.country, region: f.region, location_name: f.location_name, lat: f.lat, lng: f.lng, google_place_id: f.google_place_id,
-      opening_hours: f.hours, open_days: openDays, open_time: sched === 'tour' ? f.tour_time : first.open, close_time: first.close, entrance_fee_free: isFree, facilities: amenities, photos: f.photos, event_date: eventIso, schedule_type: sched, starts_on: (sched === 'range' || sched === 'tour') ? f.starts_on : null, ends_on: (sched === 'range' || sched === 'tour') ? f.ends_on : null,
+      opening_hours: f.hours, open_days: openDays, open_time: sched === 'tour' ? f.tour_time : first.open, close_time: first.close, entrance_fee_free: isFree, accommodation_available: f.accommodation_available, facilities: amenities, photos: f.photos, event_date: eventIso, schedule_type: sched, starts_on: (sched === 'range' || sched === 'tour') ? f.starts_on : null, ends_on: (sched === 'range' || sched === 'tour') ? f.ends_on : null,
       daily_limit: f.daily_limit ? Number(f.daily_limit) : null, pickup_times: ['guide', 'activity'].includes(f.category) ? f.pickup_times : [], status: ['approved', 'hidden'].includes(listing?.status) ? listing.status : 'pending', admin_note: null };
     const q = listing ? supabase.from('listings').update(row).eq('id', listing.id).select().single() : supabase.from('listings').insert(row).select().single();
     const { data, error } = await q; if (error) return Alert.alert('Cannot save', /one_listing_per_provider|one_main_listing/.test(error.message) ? `You can list only one ${CAT_LABEL[f.category].toLowerCase()}.` : error.message);
@@ -225,7 +234,7 @@ export default function ListingForm({ route, navigation }) {
       {catLocked
         ? <><View style={{ flexDirection: 'row' }}><Chip label={CAT_LABEL[f.category] || f.category} active /></View><Muted>🔒 The type cannot be changed after the listing is created.</Muted></>
         : catOptions.length
-          ? <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{catOptions.map((c) => <View key={c} style={{ marginBottom: 6 }}><Chip label={CAT_LABEL[c] || c} active={f.category === c} onPress={() => set('category')(c)} /></View>)}</View>
+          ? <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{catOptions.map((c) => <View key={c} style={{ marginBottom: 6 }}><Chip label={CAT_LABEL[c] || c} active={f.category === c} onPress={() => setCategory(c)} /></View>)}</View>
           : <Muted>You have already listed everything this registration allows.</Muted>}
       {!catLocked && existing && allOpts.some((c) => SLOT[c] && taken.has(SLOT[c])) && <Muted>You already have your {allOpts.filter((c) => SLOT[c] && taken.has(SLOT[c])).map((c) => CAT_LABEL[c].toLowerCase()).join(' / ')} listed, so only the other types are shown.</Muted>}
 
@@ -286,7 +295,13 @@ export default function ListingForm({ route, navigation }) {
             </>}
       </Card>
 
-      <Label>Daily limit (max guests per day, empty = unlimited)</Label><Input keyboardType="number-pad" value={f.daily_limit} onChangeText={set('daily_limit')} />
+      <Label>Daily limit (max guests per day{f.accommodation_available ? ', required for accommodation' : ', empty = unlimited'})</Label><Input keyboardType="number-pad" value={f.daily_limit} onChangeText={set('daily_limit')} />
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
+        <Text style={{ flex: 1, fontWeight: '700' }}>Overnight accommodation is available here</Text>
+        <Switch value={f.accommodation_available} onValueChange={set('accommodation_available')} disabled={['hotel', 'resort', 'campsite', 'airbnb'].includes(f.category)} />
+      </View>
+      {f.accommodation_available && mainKind !== 'room' && <Muted>Add a room price under Facilities, activities and extra prices. It will appear in the custom trip accommodation cards.</Muted>}
 
       <Label>Amenities (choose from the list)</Label>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{AMENITIES.map((a) => <View key={a} style={{ marginBottom: 6 }}><Chip label={a} active={f.amenities.includes(a)} onPress={() => toggleAmenity(a)} /></View>)}</View>
@@ -325,7 +340,7 @@ export default function ListingForm({ route, navigation }) {
           <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
             <Chip label={p.kind} onPress={() => updPrice(i, 'kind', cycle(KINDS, p.kind))} /><Chip label={p.audience} onPress={() => updPrice(i, 'audience', cycle(AUD, p.audience))} />
             <Chip label={p.unit.replace('_', ' ')} onPress={() => updPrice(i, 'unit', cycle(UNITS, p.unit))} /><Chip label={p.is_optional ? 'optional' : 'required'} onPress={() => updPrice(i, 'is_optional', !p.is_optional)} /></View>
-          <Input placeholder={needsDetails(p.kind) ? 'Name (e.g. Boat ride, Spa, Game drive)' : 'Label (e.g. Parking, Camera pass)'} value={p.label} onChangeText={(v) => updPrice(i, 'label', v)} />
+          <Input placeholder={needsDetails(p.kind) ? 'Name (e.g. Boat ride, Spa, Game drive)' : p.kind === 'room' ? 'Accommodation name (e.g. lodge, family room, tent)' : 'Label (e.g. Parking, Camera pass)'} value={p.label} onChangeText={(v) => updPrice(i, 'label', v)} />
           {needsDetails(p.kind) && <>
             <Input multiline placeholder="Details: what is included, duration, what to bring" value={p.description || ''} onChangeText={(v) => updPrice(i, 'description', v)} />
             {rowBusy === i
@@ -339,6 +354,7 @@ export default function ListingForm({ route, navigation }) {
         <Btn style={{ flex: 1, marginHorizontal: 2 }} kind="ghost" title="＋ Facility" onPress={() => addPrice('facility')} />
         <Btn style={{ flex: 1, marginLeft: 4 }} kind="ghost" title="＋ Activity" onPress={() => addPrice('activity')} />
       </View>
+      {f.accommodation_available && mainKind !== 'room' && <Btn kind="ghost" title="＋ Accommodation / room price" onPress={() => addPrice('room')} />}
 
       <Label>Contact (hidden until guest books or subscribes)</Label>
       <Input placeholder="Email" autoCapitalize="none" value={contact.email || ''} onChangeText={(v) => setContact({ ...contact, email: v })} />

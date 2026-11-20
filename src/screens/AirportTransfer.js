@@ -6,7 +6,7 @@ import RoutePreview from '../components/RoutePreview';
 import { getPosition, reverseInfo } from '../lib/geo';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
-import { Btn, Card, Input, Label, Muted, Chip } from '../components/ui';
+import { Btn, Card, Input, Label, Muted, Chip, Stepper } from '../components/ui';
 import PhoneField from '../components/PhoneField';
 import { pickLocation } from '../lib/pickBus';
 import { transferPrice } from '../lib/pricing';
@@ -22,7 +22,8 @@ export default function AirportTransfer({ navigation }) {
   const [dir, setDir] = useState('from');
   const [airports, setAirports] = useState([]); const [airport, setAirport] = useState(null); const [place, setPlace] = useState(null);
   const [country, setCountry] = useState(''); const [q, setQ] = useState(''); const [page, setPage] = useState(0);
-  const [vehicles, setVehicles] = useState([]); const [vid, setVid] = useState(null); const [pax, setPax] = useState(1);
+  const [vehicles, setVehicles] = useState([]); const [vid, setVid] = useState(null);
+  const [adults, setAdults] = useState(1); const [children, setChildren] = useState(0); const pax = adults + children;
   const [date, setDate] = useState(new Date()); const [time, setTime] = useState('12:00');
   const [km, setKm] = useState(null); const [contactPhone, setContactPhone] = useState(''); const [busy, setBusy] = useState(false);
 
@@ -67,7 +68,7 @@ export default function AirportTransfer({ navigation }) {
       const { data, error } = await supabase.from('airport_transfers').insert({ user_id: session.user.id, vehicle_id: v.id, airport_id: airport.id,
         pickup: dir === 'from' ? airport.name : place.label, dropoff: dir === 'from' ? place.label : airport.name, pickup_time: when.toISOString(), passengers: pax, distance_km: km, price,
         contact_phone: contactPhone,
-        pickup_lat: from.lat, pickup_lng: from.lng, dropoff_lat: to.lat, dropoff_lng: to.lng }).select().single();
+        pickup_lat: from.lat, pickup_lng: from.lng, dropoff_lat: to.lat, dropoff_lng: to.lng, adults, children }).select().single();
       if (error) throw error;
       const p = await startPayment({ purpose: 'transfer', transferId: data.id }); navigation.replace('Pay', { url: p.authorization_url });
     } catch (e) { Alert.alert('Error', e.message); } finally { setBusy(false); }
@@ -126,9 +127,9 @@ export default function AirportTransfer({ navigation }) {
         <RoutePreview from={from} to={to} onKm={setKm} />
 
         <H n={5} t="Passengers" />
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Btn title="−" kind="ghost" onPress={() => setPax(Math.max(1, pax - 1))} /><Text style={{ width: 44, textAlign: 'center', fontSize: 20, fontWeight: '800' }}>{pax}</Text><Btn title="+" kind="ghost" onPress={() => setPax(pax + 1)} />
-        </View>
+        <Stepper label="Adults" value={adults} onChange={setAdults} min={1} max={100} />
+        <Stepper label="Children" value={children} onChange={setChildren} min={0} max={100} />
+        <Muted>{pax} passengers total · the vehicle must fit everyone</Muted>
 
         <H n={6} t="Choose a vehicle" />
         {vehicles.map((x) => { const fits = x.max_passengers >= pax; const total = km != null ? transferPrice(x, km) : null; return (

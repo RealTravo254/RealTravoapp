@@ -32,7 +32,7 @@ export default function MyCustomTrips({ navigation }) {
         return (
           <Card key={p.id} style={{ marginHorizontal: 0, padding: 14 }}>
             <Text style={{ fontWeight: '800', fontSize: 16 }}>🧳 {p.start_date} → {p.end_date}</Text>
-            <Muted>{p.people} people · Total {formatMoney(p.total)}</Muted>
+            <Muted>{p.adults ?? p.people} adults{p.children ? ` + ${p.children} children` : ''} · Total {formatMoney(p.total)}</Muted>
             {p.trip_type && <Muted>🚐 {p.trip_type === 'round' ? 'Pickup & return' : 'Pickup'} · {p.pickup_location}</Muted>}
             <Muted style={{ marginTop: 4 }}>The whole trip cannot be cancelled. You can cancel single items (fee {pct}%).</Muted>
             {bs.map((b) => { const gone = b.status === 'cancelled'; const past = b.start_date <= new Date().toISOString().slice(0, 10); return (

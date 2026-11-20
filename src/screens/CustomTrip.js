@@ -19,15 +19,19 @@ import { C } from '../lib/theme';
 
 const GAP = 30; // minutes between two activities
 const PAGE_SIZE = 8;
-const STAY = ['resort'];
+const STAY = ['hotel', 'resort', 'campsite', 'airbnb'];
 
 // Remove rows that share the same id, so React never sees two children with the same key.
 const uniq = (arr) => { const seen = new Set(); return (arr || []).filter((r) => r && !seen.has(r.id) && seen.add(r.id)); };
 
 // Every category a guest can add to a trip. "all" shows everything in the chosen place.
-const ALL_CATS = ['resort', 'attraction', 'activity', 'guide'];
+const ALL_CATS = ['hotel', 'resort', 'campsite', 'attraction', 'airbnb', 'activity', 'guide'];
 const CATS = {
   all: { label: '🌍 All', cats: ALL_CATS },
+  stay: { label: '🛏️ Accommodation', cats: ['hotel', 'resort', 'campsite', 'attraction', 'airbnb'], stay: true },
+  hotel: { label: '🏨 Hotels & resorts', cats: ['hotel', 'resort'] },
+  campsite: { label: '🏕️ Campsites', cats: ['campsite'] },
+  airbnb: { label: '🏠 Airbnb', cats: ['airbnb'] },
   resort: { label: '🌴 Resorts', cats: ['resort'] },
   attraction: { label: '🏞️ Attractions', cats: ['attraction'] },
   activity: { label: '🎯 Activities', cats: ['activity'] },
@@ -35,7 +39,7 @@ const CATS = {
   tour: { label: '🚌 Tours & trips', cats: ['activity', 'guide'], tour: true },
 };
 const CAT_BADGE = {
-  resort: '🌴 Resort',
+  hotel: '🏨 Hotel', resort: '🌴 Resort', campsite: '🏕️ Campsite', airbnb: '🏠 Airbnb',
   attraction: '🏞️ Attraction', activity: '🎯 Activity', guide: '🧭 Guide',
 };
 // The price rows that make up the "main" price of each category
@@ -45,15 +49,32 @@ const MAIN_KINDS = {
 };
 const STEPS = ['Where', 'Choose', 'Pickup', 'Pay'];
 const ts = (d, t) => new Date(`${d}T${t}:00`).getTime() / 60000;
-const isStay = (c) => STAY.includes(c.l.category);
+const isStay = (c) => !!c.stay;
 const blk = (c) => { const s = ts(c.date, c.time); return { label: `“${c.l.title}”`, s, e: isStay(c) ? s + c.nights * 1440 - 180 : s + (c.info?.duration_minutes || 120) }; };
-const lineTotal = (c, people) => c.items.reduce((s, p) => s + Number(p.price) * (p.unit === 'per_group' ? 1 : people) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1), 0);
-const mainPrices = (category, prices) => {
+const priceQuantity = (p, adults, children, childPriceSelected) => {
+  if (p.unit === 'per_group') return 1;
+  if (p.audience === 'child') return children;
+  return childPriceSelected ? adults : adults + children;
+};
+const hasChildPrice = (c, p) => {
+  const options = c.options?.some((x) => x.id === p.id) ? c.options
+    : c.extras?.some((x) => x.id === p.id) ? c.extras : c.items;
+  return options.some((x) => x.audience === 'child');
+};
+const lineTotal = (c, adults, children) => {
+  return c.items.reduce((s, p) => s + Number(p.price) * priceQuantity(p, adults, children, hasChildPrice(c, p)) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1), 0);
+};
+const mainPrices = (category, prices, stay = STAY.includes(category)) => {
   const all = uniq(prices);
-  const pool = all.filter((p) => (MAIN_KINDS[category] || []).includes(p.kind));
+  const pool = all.filter((p) => (stay ? p.kind === 'room' : (MAIN_KINDS[category] || []).includes(p.kind)));
   return (pool.length ? pool : all).slice().sort((a, b) => Number(a.price) - Number(b.price));
 };
-const cardFrom = (x) => { const p = mainPrices(x.category, x.listing_prices); return p.length ? Number(p[0].price) : null; };
+const cardFrom = (x) => {
+  const stay = STAY.includes(x.category) || !!x.accommodation_available;
+  const prices = mainPrices(x.category, x.listing_prices, stay);
+  const adult = prices.find((p) => p.audience !== 'child');
+  return adult ? Number(adult.price) : prices.length ? Number(prices[0].price) : null;
+};
 const UNIT_TXT = { per_night: ' / night', per_person: ' / person', per_group: ' / group', per_day: ' / day' };
 
 // Same-kind items may not overlap: no two stays at the same time, no two activities at the same time.
@@ -77,8 +98,10 @@ export default function CustomTrip({ navigation }) {
   // 1 where
   const [country, setCountry] = useState(''); const [region, setRegion] = useState(''); const [regions, setRegions] = useState([]); const [mine, setMine] = useState(null);
   // 2 choose
-  const [people, setPeople] = useState(2); const [days, setDays] = useState(3); const [start, setStart] = useState(new Date(Date.now() + 86400000));
+  const [adults, setAdults] = useState(2); const [children, setChildren] = useState(0); const people = adults + children;
+  const [days, setDays] = useState(3); const [start, setStart] = useState(new Date(Date.now() + 86400000));
   const [cat, setCat] = useState('all'); const [list, setList] = useState(null); const [listError, setListError] = useState(''); const [total, setTotal] = useState(0); const [page, setPage] = useState(0); const [chosen, setChosen] = useState({}); const [reload, setReload] = useState(0);
+  const [stayAvailability, setStayAvailability] = useState(null);
   // 3 pickup
   const [mode, setMode] = useState('none'); // none | oneway | return
   const [pickup, setPickup] = useState(null); const [pickupTime, setPickupTime] = useState('08:00'); const [vehicles, setVehicles] = useState([]); const [vid, setVid] = useState(null); const [km, setKm] = useState(null);
@@ -106,9 +129,10 @@ export default function CustomTrip({ navigation }) {
     const id = ++reqId.current; setList(null); setListError('');
     const g = CATS[cat];
     let q = supabase.from('listings')
-      .select('id,title,category,region,country,location_name,lat,lng,photos,rating_avg,rating_count,entrance_fee_free,schedule_type,listing_prices(id,kind,price,unit)', { count: 'exact' })
+      .select('id,title,category,region,country,location_name,lat,lng,photos,facilities,accommodation_available,rating_avg,rating_count,entrance_fee_free,schedule_type,listing_prices(id,kind,label,price,unit,audience,is_optional)', { count: 'exact' })
       .eq('status', 'approved').is('deleted_at', null).in('category', g.cats);
     if (g.tour) q = q.eq('schedule_type', 'tour');
+    if (g.stay) q = q.or('category.in.(hotel,resort,campsite,airbnb),accommodation_available.eq.true');
     if (country) q = q.eq('country', country);
     if (region) q = q.eq('region', region);
     // "id" is the tie-breaker so listings with the same title keep a stable order between pages
@@ -119,9 +143,27 @@ export default function CustomTrip({ navigation }) {
     });
   }, [step, cat, country, region, page, reload]);
 
+  useEffect(() => {
+    if (step !== 1 || list === null) return undefined;
+    const stays = list.filter((x) => STAY.includes(x.category) || x.accommodation_available);
+    if (!stays.length) { setStayAvailability({}); return undefined; }
+    let active = true;
+    setStayAvailability(null);
+    Promise.all(stays.map(async (x) => {
+      const { data, error } = await supabase.rpc('get_availability', { p_listing: x.id, p_start: startDay, p_end: endDay });
+      if (error) throw error;
+      return [x.id, typeof data !== 'number' || data >= people];
+    })).then((entries) => { if (active) setStayAvailability(Object.fromEntries(entries)); })
+      .catch((error) => { if (active) { setListError(error.message); setStayAvailability({}); } });
+    return () => { active = false; };
+  }, [step, list, startDay, endDay, people]);
+
   const goPage = (n) => { setPage(n); scrollRef.current?.scrollTo({ y: Math.max(0, listY.current - 8), animated: true }); };
 
   const items = Object.values(chosen).sort((a, b) => ts(a.date, a.time) - ts(b.date, b.time));
+  const visibleList = list && stayAvailability
+    ? list.filter((x) => !(STAY.includes(x.category) || x.accommodation_available) || stayAvailability[x.id] !== false)
+    : list;
   const first = items[0]; const last = items[items.length - 1];
   const pickupDay = ymd(pickupDate || start);
   const returnDay = returnDate ? ymd(returnDate) : endDay;
@@ -129,7 +171,7 @@ export default function CustomTrip({ navigation }) {
   const v = vehicles.find((x) => x.id === vid && x.max_passengers >= people);
   const returnPrice = isReturn && v && returnKm != null ? transferPrice(v, returnKm) : 0;
   const tprice = mode !== 'none' && v && km != null ? transferPrice(v, km) + returnPrice : 0;
-  const itemsTotal = items.reduce((s, c) => s + lineTotal(c, people), 0);
+  const itemsTotal = items.reduce((s, c) => s + lineTotal(c, adults, children), 0);
   const grand = itemsTotal + tprice;
   const clash = useMemo(() => clashes(items), [chosen]);
   useEffect(() => { setKm(null); setReturnKm(null); }, [mode, pickup?.lat, pickup?.lng, first?.l.id, last?.l.id]);
@@ -143,20 +185,38 @@ export default function CustomTrip({ navigation }) {
     const [{ data: pr }, { data: info }] = await Promise.all([
       supabase.from('listing_prices').select('*').eq('listing_id', x.id),
       supabase.from('listings').select('id,title,category,opening_hours,event_date,schedule_type,starts_on,ends_on,open_time,duration_minutes').eq('id', x.id).single()]);
-    const options = mainPrices(x.category, pr); // room types / entrance prices / guide fee ...
-    const picked = options.length ? [options[0]] : []; // cheapest by default, the guest can change it
+    const stay = STAY.includes(x.category) || !!x.accommodation_available;
+    const options = mainPrices(x.category, pr, stay);
+    const required = options.filter((p) => !p.is_optional);
+    const adultOption = options.find((p) => p.audience !== 'child');
+    const childOption = children > 0 ? options.find((p) => p.audience === 'child') : null;
+    const picked = required.length ? required : [adultOption, childOption].filter(Boolean);
+    if (!picked.length && options.length) picked.push(options[0]);
+    const extras = (pr || []).filter((p) => p.is_optional && ['facility', 'activity'].includes(p.kind));
     const fixedDate = info?.schedule_type === 'one_time' && info.event_date ? new Date(info.event_date) : null;
-    const stay = STAY.includes(x.category);
     let slot = fixedDate ? { date: ymd(fixedDate), time: `${String(fixedDate.getHours()).padStart(2, '0')}:${String(fixedDate.getMinutes()).padStart(2, '0')}` } : { date: startDay, time: stay ? '14:00' : '09:00' };
     if (!fixedDate) { // find the first free slot inside the trip dates
       outer: for (let d = 0; d < days; d++) for (let h = stay ? 14 : 8; h <= (stay ? 14 : 17); h++) {
-        const cand = { l: x, info, items: picked, date: addDays(startDay, d), time: `${String(h).padStart(2, '0')}:00`, nights: 1 };
+        const cand = { l: x, info, items: picked, stay, date: addDays(startDay, d), time: `${String(h).padStart(2, '0')}:00`, nights: 1 };
         if (!clashes([...Object.values(chosen), cand]).length) { slot = { date: cand.date, time: cand.time }; break outer; }
       }
     }
-    setChosen((c) => ({ ...c, [x.id]: { l: x, info, options, items: picked, date: slot.date, time: slot.time, nights: 1, fixed: !!fixedDate } }));
+    setChosen((c) => ({ ...c, [x.id]: { l: x, info, options, extras, items: picked, stay, date: slot.date, time: slot.time, nights: 1, fixed: !!fixedDate } }));
   };
   const setField = (id, patch) => setChosen((c) => ({ ...c, [id]: { ...c[id], ...patch } }));
+  const pickPrice = (id, p) => setChosen((current) => {
+    const item = current[id];
+    if (!item) return current;
+    const main = item.options.some((x) => x.id === p.id);
+    if (!main) {
+      const selected = item.items.some((x) => x.id === p.id);
+      return { ...current, [id]: { ...item, items: selected ? item.items.filter((x) => x.id !== p.id) : [...item.items, p] } };
+    }
+    const items = item.stay
+      ? [...item.items.filter((x) => !item.options.some((o) => o.id === x.id)), p]
+      : [...item.items.filter((x) => !item.options.some((o) => o.id === x.id) || (x.audience === 'child') !== (p.audience === 'child')), p];
+    return { ...current, [id]: { ...item, items } };
+  });
 
   const problems = [...clash];
   items.forEach((c) => {
@@ -201,11 +261,12 @@ export default function CustomTrip({ navigation }) {
     setBusy(true); let pkgId = null;
     try {
       for (const c of items) {
-        const { data: left } = await supabase.rpc('get_availability', { p_listing: c.l.id, p_start: c.date, p_end: isStay(c) ? addDays(c.date, c.nights - 1) : c.date });
+        const { data: left, error: availabilityError } = await supabase.rpc('get_availability', { p_listing: c.l.id, p_start: c.date, p_end: isStay(c) ? addDays(c.date, c.nights - 1) : c.date });
+        if (availabilityError) throw availabilityError;
         if (typeof left === 'number' && left < people) throw new Error(`${c.l.title} has only ${left} places left for that date.`);
       }
       const pickAt = mode !== 'none' ? new Date(`${pickupDay}T${pickupTime}:00`).toISOString() : null;
-      const r = await supabase.from('trip_packages').insert({ user_id: session.user.id, is_custom: true, people, start_date: startDay, end_date: endDay, trip_type: mode === 'none' ? null : mode,
+      const r = await supabase.from('trip_packages').insert({ user_id: session.user.id, is_custom: true, people, adults, children, start_date: startDay, end_date: endDay, trip_type: mode === 'none' ? null : mode,
         pickup_location: pickup?.label || null, pickup_lat: pickup?.lat || null, pickup_lng: pickup?.lng || null, pickup_time: pickAt,
         dropoff_location: isReturn ? pickup?.label || null : null, dropoff_lat: isReturn ? pickup?.lat || null : null, dropoff_lng: isReturn ? pickup?.lng || null : null,
         return_date: isReturn ? returnDay : null, return_time: isReturn ? returnTime + ':00' : null,
@@ -213,15 +274,18 @@ export default function CustomTrip({ navigation }) {
         pickup_people: mode !== 'none' ? people : null, distance_km: mode !== 'none' ? km : null, transfer_price: tprice, total: grand }).select().single();
       if (r.error) throw r.error; pkgId = r.data.id;
       for (const c of items) {
-        const total = lineTotal(c, people); const stay = isStay(c);
+        const total = lineTotal(c, adults, children); const stay = isStay(c);
         const b = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: c.l.id, package_id: pkgId, guests: people, start_date: c.date, end_date: stay ? addDays(c.date, c.nights - 1) : c.date,
-          nights: stay ? c.nights : 1, start_time: c.time + ':00', contact_phone: contactPhone, trip_type: mode === 'none' ? null : mode,
+          adults, children, nights: stay ? c.nights : 1, start_time: c.time + ':00', contact_phone: contactPhone, trip_type: mode === 'none' ? null : mode,
           pickup_location: pickup?.label || null, pickup_lat: pickup?.lat || null, pickup_lng: pickup?.lng || null, pickup_time: mode !== 'none' ? pickupTime + ':00' : null,
           return_date: isReturn ? returnDay : null, return_time: isReturn ? returnTime + ':00' : null, subtotal: total, total }).select().single();
         if (b.error) throw b.error;
         if (c.items.length) {
-          const bi = await supabase.from('booking_items').insert(c.items.map((p) => ({ booking_id: b.data.id, price_id: p.id, label: p.label, quantity: people, unit_price: p.price,
-            amount: Number(p.price) * (p.unit === 'per_group' ? 1 : people) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1) })));
+          const bi = await supabase.from('booking_items').insert(c.items.map((p) => {
+            const quantity = priceQuantity(p, adults, children, hasChildPrice(c, p));
+            return { booking_id: b.data.id, price_id: p.id, label: p.label, quantity, unit_price: p.price,
+              amount: Number(p.price) * quantity * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1) };
+          }));
           if (bi.error) throw bi.error;
         }
       }
@@ -239,7 +303,7 @@ export default function CustomTrip({ navigation }) {
     <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" style={{ backgroundColor: '#F6F7F5' }}>
       <View style={{ backgroundColor: C.primary, padding: 18, paddingTop: 22, paddingBottom: 26, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 }}>
         <Text style={{ color: '#fff', fontSize: 24, fontWeight: '800' }}>Plan your trip</Text>
-        <Text style={{ color: '#fff', opacity: 0.85, marginTop: 4 }}>Build it your way: resorts, attractions, tours and activities in one booking.</Text>
+        <Text style={{ color: '#fff', opacity: 0.85, marginTop: 4 }}>Choose your days, accommodation, tours and activities. Leave any day free if you like.</Text>
         <View style={{ flexDirection: 'row', marginTop: 16 }}>
           {STEPS.map((s, i) => (<View key={s} style={{ flex: 1, alignItems: 'center' }}>
             <View style={{ height: 4, alignSelf: 'stretch', borderRadius: 2, marginHorizontal: 3, backgroundColor: i <= step ? '#fff' : 'rgba(255,255,255,0.3)' }} />
@@ -267,22 +331,24 @@ export default function CustomTrip({ navigation }) {
             <Text style={{ fontWeight: '800', marginBottom: 6 }}>Your trip</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}><DateField style={{ flex: 1 }} value={start} minimumDate={new Date()} onChange={(d) => { setStart(d); setChosen({}); }} /></View>
             <Stepper label="Days" value={days} onChange={(n) => { setDays(n); setChosen({}); }} min={1} max={60} />
-            <Stepper label="People" value={people} onChange={setPeople} min={1} max={500} />
+            <Stepper label="Adults" value={adults} onChange={setAdults} min={1} max={500} />
+            <Stepper label="Children" value={children} onChange={setChildren} min={0} max={500} />
+            <Muted>{people} travelers total · daily activities are optional</Muted>
             <Label>Contact phone number</Label><PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} />
             <Muted>{startDay} → {endDay}{country ? ` · ${region ? region + ', ' : ''}${country}` : ''}</Muted>
           </Card>
 
           <View onLayout={(e) => { listY.current = e.nativeEvent.layout.y; }}>
             <Text style={{ fontSize: 18, fontWeight: '800', marginTop: 8 }}>What do you want to book?</Text>
-            <Muted>Everything available in {region ? `${region}, ` : ''}{country || 'your destination'}.</Muted>
+            <Muted>Choose cards to add them to a day. You can skip any day and book without opening a listing detail page.</Muted>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8, marginBottom: 4 }}>
               {Object.entries(CATS).map(([k, g]) => <Chip key={k} label={g.label} active={cat === k} onPress={() => setCat(k)} />)}
             </ScrollView>
             {list !== null && <Muted style={{ marginBottom: 4 }}>{total} {total === 1 ? 'place' : 'places'} found</Muted>}
           </View>
 
-          {list === null ? <Loader /> : listError ? <Card style={{ marginHorizontal: 0 }}><Muted>{listError}</Muted><Btn kind="ghost" title="Try again" onPress={() => setReload((n) => n + 1)} /></Card> : list.length === 0 ? <Muted style={{ textAlign: 'center', margin: 24 }}>Nothing here yet. Try another region or category.</Muted> :
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>{list.map((x) => { const c = chosen[x.id]; const from = cardFrom(x); const freeEntry = x.entrance_fee_free && x.category === 'attraction'; const cover = x.photos?.[0] || null; return (
+          {list === null || (list.some((x) => STAY.includes(x.category) || x.accommodation_available) && stayAvailability === null) ? <Loader /> : listError ? <Card style={{ marginHorizontal: 0 }}><Muted>{listError}</Muted><Btn kind="ghost" title="Try again" onPress={() => setReload((n) => n + 1)} /></Card> : !visibleList?.length ? <Muted style={{ textAlign: 'center', margin: 24 }}>{list.length ? 'No accommodation is available for these dates and group size.' : 'Nothing here yet. Try another region or category.'}</Muted> :
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>{visibleList.map((x) => { const c = chosen[x.id]; const from = cardFrom(x); const freeEntry = x.entrance_fee_free && x.category === 'attraction'; const cover = x.photos?.[0] || null; return (
               <Card key={x.id} onPress={() => toggle(x)} style={{ width: '49%', marginHorizontal: 0, padding: 0, overflow: 'hidden', borderWidth: 2, borderColor: c ? C.primary : '#E5E7EB', backgroundColor: c ? '#F3F9F5' : '#fff' }}>
                 <View>
                   <Img uri={cover} category={x.category} style={{ height: 105 }} />
@@ -296,22 +362,31 @@ export default function CustomTrip({ navigation }) {
                   <Muted numberOfLines={2}>📍 {x.location_name || x.region}, {x.country}</Muted>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
                     <Text style={{ color: C.muted }}>⭐ {Number(x.rating_avg || 0).toFixed(1)} ({x.rating_count || 0})</Text>
-                    <Text style={{ fontWeight: '800', color: C.primary }}>{freeEntry || from === 0 ? 'Free' : from != null ? `From ${formatMoney(from)}` : 'On request'}</Text>
+                    <Text style={{ fontWeight: '800', color: C.primary }}>{freeEntry || from === 0 ? 'Free' : from != null ? `From ${formatMoney(from)}${(STAY.includes(x.category) || x.accommodation_available) ? ' / night' : ''}` : 'On request'}</Text>
                   </View>
+                    {!!x.accommodation_available && !STAY.includes(x.category) && <Muted>🛏️ Accommodation available at this place</Muted>}
+                    {!!x.facilities?.length && <Muted numberOfLines={2}>Amenities: {x.facilities.join(' · ')}</Muted>}
                   {c && <>
                     <View style={{ height: 1, backgroundColor: '#E5E7EB', marginVertical: 10 }} />
                     {c.options?.length > 1 && <>
-                      <Text style={{ fontWeight: '700', marginBottom: 4 }}>{STAY.includes(x.category) ? 'Room type' : 'Option'}</Text>
+                        <Text style={{ fontWeight: '700', marginBottom: 4 }}>{c.stay ? 'Room / stay option' : 'Choose adult and child prices'}</Text>
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                        {c.options.map((p) => <View key={p.id} style={{ marginBottom: 6 }}><Chip label={optLabel(p)} active={c.items[0]?.id === p.id} onPress={() => setField(x.id, { items: [p] })} /></View>)}
+                          {c.options.map((p) => <View key={p.id} style={{ marginBottom: 6 }}><Chip label={optLabel(p)} active={c.items.some((i) => i.id === p.id)} onPress={() => pickPrice(x.id, p)} /></View>)}
                       </View></>}
+                      {!!c.extras?.length && <>
+                        <Text style={{ fontWeight: '700', marginTop: 4 }}>On-site facilities and activities</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                          {c.extras.map((p) => <View key={p.id} style={{ marginBottom: 6 }}><Chip label={`${c.items.some((i) => i.id === p.id) ? '✓ ' : '+ '}${optLabel(p)}`} active={c.items.some((i) => i.id === p.id)} onPress={() => pickPrice(x.id, p)} /></View>)}
+                        </View>
+                        {c.items.filter((p) => c.extras.some((extra) => extra.id === p.id) && p.description).map((p) => <Muted key={`detail-${p.id}`}>{p.label}: {p.description}</Muted>)}
+                      </>}
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                       <DateField style={{ flex: 1, marginRight: 8 }} value={new Date(c.date + 'T12:00:00')} disabled={c.fixed} suffix={c.fixed ? ' (fixed date)' : ''}
                         minimumDate={new Date(startDay + 'T00:00:00')} maximumDate={new Date(endDay + 'T23:00:00')} onChange={(d) => setField(x.id, { date: ymd(d) })} />
                       {c.fixed ? <Text style={{ fontWeight: '700' }}>🕒 {c.time}</Text> : <TimeField value={c.time} onChange={(t) => setField(x.id, { time: t })} />}
                     </View>
-                    {STAY.includes(x.category) && <Stepper label="Nights" value={c.nights} onChange={(n) => setField(x.id, { nights: n })} min={1} max={30} />}
-                    <Text style={{ fontWeight: '800', color: C.primary, marginTop: 4 }}>{formatMoney(lineTotal(c, people))} for {people} {people === 1 ? 'person' : 'people'}</Text>
+                    {c.stay && <Stepper label="Nights" value={c.nights} onChange={(n) => setField(x.id, { nights: n })} min={1} max={30} />}
+                    <Text style={{ fontWeight: '800', color: C.primary, marginTop: 4 }}>{formatMoney(lineTotal(c, adults, children))} for {adults} adults{children ? ` + ${children} children` : ''}</Text>
                     <TouchableOpacity onPress={() => toggle(x)}><Text style={{ color: C.danger, fontWeight: '700', marginTop: 6 }}>Remove from trip</Text></TouchableOpacity>
                   </>}
                 </View>
@@ -375,11 +450,11 @@ export default function CustomTrip({ navigation }) {
         {/* ---------------- STEP 4: REVIEW & PAY ---------------- */}
         {step === 3 && <>
           <Text style={{ fontSize: 18, fontWeight: '800', marginTop: 8 }}>Review and pay</Text>
-          <Muted>{startDay} → {endDay} · {people} {people === 1 ? 'person' : 'people'}</Muted>
+          <Muted>{startDay} → {endDay} · {adults} adults{children ? ` · ${children} children` : ''} · {people} travelers</Muted>
           {items.map((c) => <Card key={c.l.id} style={{ marginHorizontal: 0 }}><View style={{ flexDirection: 'row' }}>
             <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>{c.l.title}</Text><Muted>{CAT_BADGE[c.l.category] || c.l.category} · {c.date} · {c.time}{isStay(c) ? ` · ${c.nights} night(s)` : ''}</Muted>
-              {c.items[0]?.label && c.items[0].label !== c.items[0].kind ? <Muted>{c.items[0].label}</Muted> : null}</View>
-            <Text style={{ fontWeight: '800' }}>{formatMoney(lineTotal(c, people))}</Text></View></Card>)}
+              {c.items.map((p) => <Muted key={p.id}>{p.label} · {p.audience}</Muted>)}</View>
+            <Text style={{ fontWeight: '800' }}>{formatMoney(lineTotal(c, adults, children))}</Text></View></Card>)}
           {mode !== 'none' && <Card style={{ marginHorizontal: 0 }}><View style={{ flexDirection: 'row' }}>
             <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>🚐 {isReturn ? 'Pickup and return' : 'Pickup only'} · {v?.name}</Text><Muted>{pickup?.label} · {pickupDay} {pickupTime}{isReturn ? ` · Return ${returnDay} ${returnTime}` : ''}</Muted></View>
             <Text style={{ fontWeight: '800' }}>{formatMoney(tprice)}</Text></View></Card>}

@@ -165,7 +165,7 @@ export default function HostBookings({ navigation }) {
         <View style={s.infoRow}>
           <View style={{ flex: 1 }}>
             <Line icon="calendar-outline">{sameDay ? fmt(b.start_date) : `${fmt(b.start_date)} → ${fmt(b.end_date)}`}</Line>
-            <Line icon="people-outline">{b.guests} {b.guests === 1 ? 'guest' : 'guests'}</Line>
+            <Line icon="people-outline">{b.adults ?? b.guests} adults{b.children ? ` + ${b.children} children` : ''}</Line>
             {!!b.start_time && <Line icon="time-outline">{b.start_time.slice(0, 5)}</Line>}
           </View>
           <View style={s.totalBox}>

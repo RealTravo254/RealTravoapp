@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, Alert, ScrollView, FlatList, Animated, Easing, Linking, Vibration, AppState,
-  TouchableOpacity, StyleSheet, useWindowDimensions, ActivityIndicator,
+  TouchableOpacity, StyleSheet, useWindowDimensions, ActivityIndicator, TextInput,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +24,7 @@ export default function ScanQR() {
   const [cachedBookings, setCachedBookings] = useState([]);
   const [pendingSync, setPendingSync] = useState(0);
   const [syncError, setSyncError] = useState('');
+  const [manualCode, setManualCode] = useState('');
   const locked = useRef(false);
   const syncing = useRef(false);
   const insets = useSafeAreaInsets();
@@ -176,27 +177,28 @@ export default function ScanQR() {
 
   // ---------- scan handler ----------
   const onScan = async ({ data }) => {
-    if (locked.current || !data) return;
+    const code = String(data || '').trim();
+    if (locked.current || !code) return;
     locked.current = true;
     setBusy(true);
     Vibration.vibrate(60);
     try {
-      const { data: r, error } = await supabase.rpc('scan_qr', { p_token: data.trim() });
+      const { data: r, error } = await supabase.rpc('scan_qr', { p_token: code });
       if (error) {
         if (isNetworkError(error)) {
-          const shown = await showOfflineBooking(data.trim());
+          const shown = await showOfflineBooking(code);
           if (!shown) locked.current = false;
           setBusy(false);
           return;
         }
         if (String(error.message).toLowerCase().includes('already checked in')) {
-          await markCheckinUsed(session.user.id, data.trim());
+          await markCheckinUsed(session.user.id, code);
           setCachedBookings(await readCheckinCache(session.user.id));
         }
-        Alert.alert('Invalid QR code', error.message, [{ text: 'Scan again', onPress: () => { locked.current = false; setBusy(false); } }]);
+        Alert.alert('Invalid booking code', error.message, [{ text: 'Try again', onPress: () => { locked.current = false; setBusy(false); } }]);
         return;
       }
-      await markCheckinUsed(session.user.id, data.trim());
+      await markCheckinUsed(session.user.id, code);
       setCachedBookings(await readCheckinCache(session.user.id));
       setTorch(false);
       setRes(r);
@@ -204,7 +206,7 @@ export default function ScanQR() {
     } catch (e) {
       if (isNetworkError(e)) {
         try {
-          const shown = await showOfflineBooking(data.trim());
+          const shown = await showOfflineBooking(code);
           if (!shown) locked.current = false;
         } catch (cacheError) {
           locked.current = false;
@@ -335,6 +337,18 @@ export default function ScanQR() {
             <Ionicons name={torch ? 'flashlight' : 'flashlight-outline'} size={22} color={torch ? C.deep : '#fff'} />
           </TouchableOpacity>
           <Text style={s.torchLabel}>{torch ? 'Flashlight on' : 'Flashlight'}</Text>
+          <TextInput
+            value={manualCode}
+            onChangeText={setManualCode}
+            placeholder="Or enter booking ID"
+            placeholderTextColor="rgba(255,255,255,0.65)"
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={s.manualInput}
+          />
+          <TouchableOpacity disabled={busy || !manualCode.trim()} onPress={() => onScan({ data: manualCode })} style={[s.primaryBtn, { marginTop: 6, opacity: busy || !manualCode.trim() ? 0.5 : 1 }]}>
+            <Text style={s.primaryBtnText}>Check booking ID</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -391,6 +405,7 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.12)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.5)',
   },
   torchLabel: { color: '#fff', marginTop: 8, fontSize: 13, fontWeight: '600' },
+  manualInput: { alignSelf: 'stretch', marginTop: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)', borderRadius: 12, padding: 12, color: '#fff' },
 
   // result card
   resultCard: {

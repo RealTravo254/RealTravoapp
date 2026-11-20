@@ -301,7 +301,7 @@ function HostBalances() {
 function AdminListings() {
   const nav = useNavigation(); const [status, setStatus] = useState('pending'); const [rows, setRows] = useState([]); const [page, setPage] = useState(0);
   const load = useCallback(async () => {
-    let q = supabase.from('listings').select('id,title,category,status,country,region,created_at,schedule_type,providers(business_name)').is('deleted_at', null).order('created_at', { ascending: false }).range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+    let q = supabase.from('listings').select('id,title,category,status,country,region,created_at,schedule_type,accommodation_available,providers(business_name)').is('deleted_at', null).order('created_at', { ascending: false }).range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
     if (status !== 'all') q = q.eq('status', status);
     const { data } = await q; setRows(data || []);
   }, [status, page]);
@@ -312,7 +312,7 @@ function AdminListings() {
     <FlatList data={rows.slice(0, PAGE_SIZE)} keyExtractor={(i) => i.id} ListEmptyComponent={<Muted style={{ textAlign: 'center', margin: 30 }}>No {status} listings</Muted>}
       ListFooterComponent={<Pager page={page} setPage={setPage} hasMore={rows.length > PAGE_SIZE} />}
       renderItem={({ item }) => <Card><Text style={{ fontWeight: '700' }}>{item.title}</Text>
-        <Muted>{item.category}{item.schedule_type !== 'always' ? ` · ${item.schedule_type.replace('_', ' ')}` : ''} · {item.region || item.country} · {item.providers?.business_name || 'host'}</Muted>
+        <Muted>{item.category}{item.accommodation_available ? ' · accommodation available' : ''}{item.schedule_type !== 'always' ? ` · ${item.schedule_type.replace('_', ' ')}` : ''} · {item.region || item.country} · {item.providers?.business_name || 'host'}</Muted>
         <Text>Status: {item.status} · {new Date(item.created_at).toLocaleDateString()}</Text>
         <Btn title="Open full details" onPress={() => nav.navigate('AdminListing', { id: item.id })} /></Card>} />
   </View>;

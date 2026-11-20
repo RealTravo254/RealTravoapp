@@ -41,7 +41,7 @@ export default function AdminListing({ route, navigation }) {
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>{(l.photos.length ? l.photos : [null]).map((u, i) => <Img key={i} uri={u} category={l.category} style={{ width: 260, height: 170, marginRight: 4 }} />)}</ScrollView>
       <Block title={l.title}>
         <Row k="Category" v={l.category} /><Row k="Status" v={`${l.status}${l.verified_once ? ' · was verified before' : ''}`} /><Row k="Created" v={new Date(l.created_at).toLocaleString()} />
-        <Row k="Description" v={l.description} /><Row k="Previous admin note" v={l.admin_note} />
+        <Row k="Description" v={l.description} /><Row k="Overnight accommodation" v={l.accommodation_available ? 'Available' : 'Not available'} /><Row k="Previous admin note" v={l.admin_note} />
       </Block>
       <Block title="Host and documents">
         <Row k="Business name" v={p.business_name} /><Row k="Registered as" v={p.category} /><Row k="Registration no." v={p.registration_number} /><Row k="TRA number" v={p.tra_number} />

@@ -66,6 +66,7 @@ create table listings (
   category listing_category not null, title text not null, description text,
   country text not null, region text, location_name text, google_place_id text, lat double precision, lng double precision,
   photos text[] not null default '{}', facilities text[] not null default '{}',
+  accommodation_available boolean not null default false,
   open_days text[] not null default '{mon,tue,wed,thu,fri,sat,sun}', open_time time, close_time time,
   entrance_fee_free boolean not null default false,
   status review_status not null default 'draft', admin_note text,
@@ -127,7 +128,7 @@ create table destinations (
   lat double precision, lng double precision, activities text[] not null default '{}', active boolean not null default true);
 create table trip_packages (
   id uuid primary key default gen_random_uuid(), user_id uuid not null references profiles(id) on delete cascade,
-  title text, people int not null default 1, start_date date, end_date date, trip_type text, pickup_time timestamptz,
+  title text, is_custom boolean not null default false, people int not null default 1, adults int, children int not null default 0, start_date date, end_date date, trip_type text, pickup_time timestamptz,
   dropoff_location text, dropoff_lat double precision, dropoff_lng double precision, return_date date, return_time time, contact_phone text,
   pickup_location text, pickup_lat double precision, pickup_lng double precision,
   vehicle_id uuid references vehicles(id), pickup_people int, distance_km numeric,
@@ -138,8 +139,8 @@ create table bookings (
   listing_id uuid not null references listings(id), package_id uuid references trip_packages(id) on delete set null,
   parent_booking_id uuid references bookings(id) on delete set null,
   status booking_status not null default 'pending', payment_status payment_status not null default 'unpaid',
-  urgent boolean not null default false, respond_by timestamptz, start_date date, end_date date, nights int, trip_type text,
-  guests int not null default 1 check (guests > 0), pickup_location text, pickup_lat double precision, pickup_lng double precision,
+  urgent boolean not null default false, respond_by timestamptz, start_date date, end_date date, start_time time, nights int, trip_type text,
+  guests int not null default 1 check (guests > 0), adults int, children int not null default 0, pickup_location text, pickup_lat double precision, pickup_lng double precision,
   pickup_time time, return_date date, return_time time, contact_phone text, meeting_point text, note text,
   subtotal numeric not null default 0, discount numeric not null default 0, total numeric not null default 0, commission numeric not null default 0,
   qr_token uuid not null default gen_random_uuid(), checked_in_at timestamptz, decline_reason text, created_at timestamptz not null default now());
@@ -169,7 +170,7 @@ create trigger bookings_capacity before insert on bookings for each row execute 
 create table airport_transfers (
   id uuid primary key default gen_random_uuid(), user_id uuid not null references profiles(id) on delete cascade,
   vehicle_id uuid not null references vehicles(id), booking_id uuid references bookings(id) on delete set null,
-  pickup text not null, dropoff text not null, pickup_time timestamptz not null, passengers int not null, distance_km numeric not null, price numeric not null, contact_phone text,
+  pickup text not null, dropoff text not null, pickup_time timestamptz not null, passengers int not null, adults int, children int not null default 0, distance_km numeric not null, price numeric not null, contact_phone text,
   status booking_status not null default 'pending', payment_status payment_status not null default 'unpaid', created_at timestamptz not null default now());
 create or replace function check_vehicle_capacity() returns trigger language plpgsql set search_path = public as $$
 declare cap int;
@@ -247,10 +248,13 @@ begin select * into b from bookings where id = p_booking and user_id = auth.uid(
 
 create or replace function scan_qr(p_token uuid) returns jsonb language plpgsql security definer set search_path = public as $$
 declare b bookings; l listings; res jsonb;
-begin select * into b from bookings where qr_token = p_token; if b.id is null then raise exception 'Invalid code'; end if;
+begin select * into b from bookings where qr_token = p_token or id = p_token for update; if b.id is null then raise exception 'Invalid booking code'; end if;
   select * into l from listings where id = b.listing_id;
   if l.owner_id <> auth.uid() and not is_admin() then raise exception 'Not your booking'; end if;
-  update bookings set checked_in_at = coalesce(checked_in_at, now()) where id = b.id;
+  if b.status not in ('accepted','completed') then raise exception 'Booking is not active'; end if;
+  if b.payment_status <> 'paid' then raise exception 'Booking is not paid'; end if;
+  if b.checked_in_at is not null then raise exception 'Booking already checked in'; end if;
+  update bookings set checked_in_at = now() where id = b.id returning * into b;
   select jsonb_build_object('booking', to_jsonb(b), 'items', coalesce((select jsonb_agg(to_jsonb(i)) from booking_items i where i.booking_id = b.id),'[]'::jsonb),
     'guest', (select jsonb_build_object('first_name',first_name,'last_name',last_name,'country',country) from profiles where id = b.user_id)) into res;
   return res; end $$;
