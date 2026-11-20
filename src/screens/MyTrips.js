@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase, PAGE_SIZE } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import ScreenHeader from '../components/ScreenHeader';
-import { Btn, Card, Muted, Pager, Loader, Chip } from '../components/ui';
+import { Btn, Muted, Pager, Loader } from '../components/ui';
 import DateField from '../components/DateField';
 import { startPayment } from '../lib/payments';
 import { ymd } from '../lib/pricing';
@@ -17,10 +17,10 @@ const CANCELLED = ['cancelled', 'declined'];
 const dropOf = (b) => [].concat(b.booking_dropoffs || [])[0]?.dropoff_location;
 const pkgOf = (b) => [].concat(b.trip_packages || [])[0] || null;
 const TABS = [
-  ['upcoming', '📅 Upcoming', 'No upcoming bookings.'],
-  ['pending', '⏳ Pending', 'No pending bookings.'],
-  ['completed', '✅ Completed', 'No completed bookings.'],
-  ['cancelled', '❌ Cancelled', 'No cancelled bookings.'],
+  ['upcoming', 'Upcoming', 'No upcoming bookings.', 'calendar-outline'],
+  ['pending', 'Pending', 'No pending bookings.', 'time-outline'],
+  ['completed', 'Completed', 'No completed bookings.', 'checkmark-circle-outline'],
+  ['cancelled', 'Cancelled', 'No cancelled bookings.', 'close-circle-outline'],
 ];
 const WHEN = [['all', 'Any date'], ['month', 'This month'], ['range', 'Pick dates']];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -37,6 +37,21 @@ const STATUS_STYLE = {
 };
 const statusStyle = (st) => STATUS_STYLE[st] || { label: String(st || '-'), color: '#4A5A52', bg: '#EEF2EF' };
 
+/* ---------- small building blocks ---------- */
+const Tag = ({ icon, text, color, bg }) => (
+  <View style={[s.tag, { backgroundColor: bg }]}>
+    {icon ? <Ionicons name={icon} size={12} color={color} style={{ marginRight: 3 }} /> : null}
+    <Text style={[s.tagText, { color }]}>{text}</Text>
+  </View>
+);
+
+const InfoLine = ({ icon, children }) => (
+  <View style={s.infoLine}>
+    <Ionicons name={icon} size={15} color="#6B7A72" style={{ marginTop: 1 }} />
+    <Text style={s.infoText}>{children}</Text>
+  </View>
+);
+
 function TripRow({ b, navigation, onPay, onCancel, feePct, formatMoney }) {
   const [open, setOpen] = useState(false);               // pickup and return stays closed until tapped
   const st = statusStyle(b.status); const a = dayParts(b.start_date);
@@ -51,63 +66,73 @@ function TripRow({ b, navigation, onPay, onCancel, feePct, formatMoney }) {
   const tripPickup = custom && pkg?.trip_type ? pkg : null;
   const hasTransport = !!(b.pickup_location || drop || b.return_date || tripPickup);
   return (
-    <Card style={{ paddingVertical: 10, opacity: gone ? 0.75 : 1 }}>
-      <TouchableOpacity activeOpacity={0.8} style={s.row} onPress={() => navigation.navigate('BookingDetail', { id: b.id })}>
-        <View style={s.dateBox}>
-          <Text style={s.dateDay}>{a.day}</Text><Text style={s.dateMon}>{a.mon}</Text>
-          {e && <Text style={s.dateTo}>to {e.day} {e.mon}</Text>}
-        </View>
-        <View style={{ flex: 1, marginHorizontal: 10 }}>
-          <Text style={[s.title, gone && { textDecorationLine: 'line-through' }]} numberOfLines={1}>{b.listings?.title || 'Booking'}</Text>
-          <View style={s.metaRow}>
-            <Ionicons name={ICONS[cat] || 'location-outline'} size={13} color="#6B7A72" />
-            <Text style={s.meta} numberOfLines={1}>
-              {cat ? `${cat} · ` : ''}{b.start_time ? `${String(b.start_time).slice(0, 5)} · ` : ''}{b.guests} {Number(b.guests) === 1 ? 'guest' : 'guests'}
-            </Text>
+    <View style={[s.card, gone && { opacity: 0.75 }]}>
+      <View style={[s.accent, { backgroundColor: st.color }]} />
+      <View style={s.cardBody}>
+        <TouchableOpacity activeOpacity={0.8} style={s.row} onPress={() => navigation.navigate('BookingDetail', { id: b.id })}>
+          <View style={s.dateBox}>
+            <Text style={s.dateDay}>{a.day}</Text><Text style={s.dateMon}>{a.mon}</Text>
+            {e && <Text style={s.dateTo}>to {e.day} {e.mon}</Text>}
           </View>
-          <View style={s.tags}>
-            <View style={[s.tag, { backgroundColor: st.bg }]}><Text style={[s.tagText, { color: st.color }]}>{st.label}</Text></View>
-            <View style={[s.tag, { backgroundColor: paid ? '#E6F4EC' : '#FEF3E2' }]}><Text style={[s.tagText, { color: paid ? '#1B7F4B' : '#B45309' }]}>{paid ? 'Paid' : 'Unpaid'}</Text></View>
-            {custom && <View style={[s.tag, { backgroundColor: '#E8F0FB' }]}><Text style={[s.tagText, { color: '#1D5FA8' }]}>🧳 Custom trip</Text></View>}
-            {!!b.parent_booking_id && <View style={s.tagGrey}><Text style={s.tagGreyText}>Add-on</Text></View>}
-            {!!b.urgent && <View style={[s.tag, { backgroundColor: '#FDECEA' }]}><Text style={[s.tagText, { color: '#B42318' }]}>Urgent</Text></View>}
-          </View>
-        </View>
-        <View style={{ alignItems: 'flex-end' }}>
-          <Text style={s.price}>{formatMoney(b.total)}</Text>
-          <Ionicons name="chevron-forward" size={18} color="#9AA8A0" style={{ marginTop: 6 }} />
-        </View>
-      </TouchableOpacity>
-
-      {gone && custom && (Number(b.cancel_fee) > 0 || Number(b.refund_due) > 0) && (
-        <Text style={s.cancelInfo}>Cancellation fee {formatMoney(b.cancel_fee)}{Number(b.refund_due) > 0 ? ` · refund due ${formatMoney(b.refund_due)}` : ''}</Text>)}
-
-      {unpaid && !!b.pay_by && <Muted style={{ marginTop: 6 }}>⏳ Pay before {new Date(b.pay_by).toLocaleString()} or it is cancelled</Muted>}
-      {unpaid && <Btn title={b.package_id ? 'Pay now (whole trip)' : 'Pay now'} onPress={() => onPay(b)} />}
-
-      {canCancel && (
-        <View style={{ marginTop: 6 }}>
-          <Btn kind="danger" title={paid ? `Cancel this item (fee ${formatMoney(fee)})` : 'Cancel this item'} onPress={() => onCancel(b, fee)} />
-          <Muted style={{ textAlign: 'center' }}>The whole trip cannot be cancelled. Only single items. The other items stay booked.</Muted>
-        </View>)}
-
-      {hasTransport && (
-        <View style={s.transport}>
-          <TouchableOpacity onPress={() => setOpen(!open)} style={s.transportHead} activeOpacity={0.7}>
-            <Text style={s.transportTitle}>🚐 Pickup and return</Text>
-            <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={C.primary} />
-          </TouchableOpacity>
-          {open && (
-            <View style={{ paddingTop: 4 }}>
-              {b.pickup_location ? <Muted>📍 Pickup: {b.pickup_location}{b.pickup_time ? ` at ${String(b.pickup_time).slice(0, 5)}` : ''}</Muted> : null}
-              {drop ? <Muted>🏁 Drop-off: {drop}</Muted> : null}
-              {b.return_date ? <Muted>↩️ Return: {b.return_date}{b.return_time ? ` at ${String(b.return_time).slice(0, 5)}` : ''}</Muted> : null}
-              {tripPickup ? <Muted>📍 Trip pickup: {tripPickup.pickup_location}{tripPickup.pickup_time ? ` · ${new Date(tripPickup.pickup_time).toLocaleString()}` : ''}{tripPickup.trip_type === 'round' ? ' · with return' : ''}</Muted> : null}
+          <View style={{ flex: 1, marginHorizontal: 12 }}>
+            <Text style={[s.title, gone && { textDecorationLine: 'line-through' }]} numberOfLines={2}>{b.listings?.title || 'Booking'}</Text>
+            <View style={s.metaRow}>
+              <Ionicons name={ICONS[cat] || 'location-outline'} size={13} color="#6B7A72" />
+              <Text style={s.meta} numberOfLines={1}>
+                {cat ? `${cat} · ` : ''}{b.start_time ? `${String(b.start_time).slice(0, 5)} · ` : ''}{b.guests} {Number(b.guests) === 1 ? 'guest' : 'guests'}
+              </Text>
             </View>
-          )}
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={s.price}>{formatMoney(b.total)}</Text>
+            <Ionicons name="chevron-forward" size={18} color="#9AA8A0" style={{ marginTop: 6 }} />
+          </View>
+        </TouchableOpacity>
+
+        <View style={s.tags}>
+          <Tag text={st.label} color={st.color} bg={st.bg} />
+          <Tag icon={paid ? 'checkmark-circle' : 'alert-circle-outline'} text={paid ? 'Paid' : 'Unpaid'} color={paid ? '#1B7F4B' : '#B45309'} bg={paid ? '#E6F4EC' : '#FEF3E2'} />
+          {custom && <Tag icon="briefcase-outline" text="Custom trip" color="#1D5FA8" bg="#E8F0FB" />}
+          {!!b.parent_booking_id && <Tag text="Add-on" color="#4A5A52" bg="#EEF2EF" />}
+          {!!b.urgent && <Tag icon="flash" text="Urgent" color="#B42318" bg="#FDECEA" />}
         </View>
-      )}
-    </Card>
+
+        {gone && custom && (Number(b.cancel_fee) > 0 || Number(b.refund_due) > 0) && (
+          <Text style={s.cancelInfo}>Cancellation fee {formatMoney(b.cancel_fee)}{Number(b.refund_due) > 0 ? ` · refund due ${formatMoney(b.refund_due)}` : ''}</Text>)}
+
+        {unpaid && !!b.pay_by && (
+          <View style={s.payBy}>
+            <Ionicons name="time-outline" size={16} color="#B45309" />
+            <Text style={s.payByText}>Pay before {new Date(b.pay_by).toLocaleString()} or it is cancelled</Text>
+          </View>
+        )}
+        {unpaid && <View style={{ marginTop: 6 }}><Btn title={b.package_id ? 'Pay now (whole trip)' : 'Pay now'} onPress={() => onPay(b)} /></View>}
+
+        {canCancel && (
+          <View style={{ marginTop: 6 }}>
+            <Btn kind="danger" title={paid ? `Cancel this item (fee ${formatMoney(fee)})` : 'Cancel this item'} onPress={() => onCancel(b, fee)} />
+            <Muted style={{ textAlign: 'center' }}>The whole trip cannot be cancelled. Only single items. The other items stay booked.</Muted>
+          </View>)}
+
+        {hasTransport && (
+          <View style={s.transport}>
+            <TouchableOpacity onPress={() => setOpen(!open)} style={s.transportHead} activeOpacity={0.7}>
+              <Ionicons name="car-outline" size={18} color={C.primary} />
+              <Text style={s.transportTitle}>Pickup and return</Text>
+              <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={C.primary} />
+            </TouchableOpacity>
+            {open && (
+              <View style={{ paddingTop: 6 }}>
+                {b.pickup_location ? <InfoLine icon="location-outline">Pickup: {b.pickup_location}{b.pickup_time ? ` at ${String(b.pickup_time).slice(0, 5)}` : ''}</InfoLine> : null}
+                {drop ? <InfoLine icon="flag-outline">Drop-off: {drop}</InfoLine> : null}
+                {b.return_date ? <InfoLine icon="return-down-back-outline">Return: {b.return_date}{b.return_time ? ` at ${String(b.return_time).slice(0, 5)}` : ''}</InfoLine> : null}
+                {tripPickup ? <InfoLine icon="location-outline">Trip pickup: {tripPickup.pickup_location}{tripPickup.pickup_time ? ` · ${new Date(tripPickup.pickup_time).toLocaleString()}` : ''}{tripPickup.trip_type === 'round' ? ' · with return' : ''}</InfoLine> : null}
+              </View>
+            )}
+          </View>
+        )}
+      </View>
+    </View>
   );
 }
 
@@ -181,11 +206,13 @@ export default function MyTrips({ navigation, route }) {
   };
 
   if (!session) return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: '#F6F8F7' }}>
       <ScreenHeader title="My bookings" icon="ticket-outline" />
-      <View style={{ flex: 1, justifyContent: 'center', padding: 28 }}>
-        <Muted style={{ textAlign: 'center', marginBottom: 12 }}>Sign in to see and download your bookings.</Muted>
-        <Btn title={tr('login')} onPress={() => navigation.navigate('Auth', { reason: 'trips' })} />
+      <View style={s.signedOut}>
+        <View style={s.emptyIcon}><Ionicons name="ticket-outline" size={26} color={C.primary} /></View>
+        <Text style={s.emptyTitle}>Sign in to see your bookings</Text>
+        <Muted style={{ textAlign: 'center', marginBottom: 14 }}>View, pay for and download your bookings in one place.</Muted>
+        <Btn title={tr('login')} style={{ alignSelf: 'stretch' }} onPress={() => navigation.navigate('Auth', { reason: 'trips' })} />
       </View>
     </View>);
 
@@ -193,10 +220,29 @@ export default function MyTrips({ navigation, route }) {
 
   const Filters = (
     <View style={s.filters}>
-      {/* tabs wrap onto the next line, so nothing scrolls sideways */}
-      <View style={s.wrap}>{TABS.map(([k, label]) => <Chip key={k} label={label} active={tab === k} onPress={() => changeTab(k)} />)}</View>
-      <Text style={s.fLabel}>Booking date</Text>
-      <View style={s.wrap}>{WHEN.map(([k, label]) => <Chip key={k} label={label} active={when === k} onPress={() => changeWhen(k)} />)}</View>
+      {/* four equal tabs, so nothing scrolls sideways */}
+      <View style={s.tabs}>
+        {TABS.map(([k, label, , icon]) => {
+          const on = tab === k;
+          return (
+            <TouchableOpacity key={k} style={[s.tabItem, on && s.tabItemOn]} onPress={() => changeTab(k)} activeOpacity={0.7}>
+              <Ionicons name={icon} size={20} color={on ? C.primary : '#8A9892'} />
+              <Text style={[s.tabText, on && s.tabTextOn]} numberOfLines={1}>{label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <View style={s.whenRow}>
+        <Ionicons name="options-outline" size={16} color="#6B7A72" style={{ marginRight: 8 }} />
+        {WHEN.map(([k, label]) => {
+          const on = when === k;
+          return (
+            <TouchableOpacity key={k} onPress={() => changeWhen(k)} activeOpacity={0.7} style={[s.whenPill, on && s.whenPillOn]}>
+              <Text style={[s.whenText, on && s.whenTextOn]}>{label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
       {when === 'range' && (
         <View style={{ flexDirection: 'row', marginTop: 4 }}>
           <View style={{ flex: 1, marginRight: 6 }}>
@@ -213,18 +259,29 @@ export default function MyTrips({ navigation, route }) {
   );
 
   return (
-    <View style={{ flex: 1 }}>
-      <ScreenHeader title="My trips" icon="ticket-outline" subtitle={`${tr('balance')}: ${formatMoney(profile?.balance)}${offline ? '  ·  offline copy' : ''}`} />
-      <View style={s.hero}>
-        <View style={s.heroIcon}><Ionicons name="airplane-outline" size={24} color={C.primary} /></View>
-        <View style={{ flex: 1 }}>
-          <Text style={s.heroTitle}>Your trips, all in one place</Text>
-          <Text style={s.heroText}>Check booking details, payment status and travel plans.</Text>
+    <View style={{ flex: 1, backgroundColor: '#F6F8F7' }}>
+      <ScreenHeader title="My trips" icon="ticket-outline" subtitle={`${tr('balance')}: ${formatMoney(profile?.balance)}`} />
+      {offline && (
+        <View style={s.offline}>
+          <Ionicons name="cloud-offline-outline" size={16} color="#8A5A0B" />
+          <Text style={s.offlineText}>Showing your saved copy. Reconnect to refresh.</Text>
         </View>
-      </View>
+      )}
       {Filters}
       {loading ? <Loader /> : <FlatList data={rows} keyExtractor={(i) => i.id}
-        ListHeaderComponent={tab === 'upcoming' && transfers.length ? (<View><Text style={{ fontWeight: '800', fontSize: 16, margin: 12, marginBottom: 0 }}>✈️ Airport transfers</Text>{transfers.map((t) => (<Card key={t.id}><Text style={{ fontWeight: '700' }}>{t.pickup} → {t.dropoff}</Text><Muted>{new Date(t.pickup_time).toLocaleString()} · {t.adults ?? t.passengers} adults{t.children ? ` + ${t.children} children` : ''} · {formatMoney(t.price)}</Muted><Text>Payment: {t.payment_status}</Text></Card>))}<Text style={{ fontWeight: '800', fontSize: 16, margin: 12, marginBottom: 0 }}>🏨 Bookings</Text></View>) : null}
+        contentContainerStyle={{ paddingTop: 10, paddingBottom: 24 }}
+        ListHeaderComponent={tab === 'upcoming' && transfers.length ? (
+          <View>
+            <View style={s.listHead}><Ionicons name="airplane-outline" size={18} color={C.primary} /><Text style={s.listHeadText}>Airport transfers</Text></View>
+            {transfers.map((t) => (
+              <View key={t.id} style={s.transferCard}>
+                <Text style={s.transferRoute}>{t.pickup} → {t.dropoff}</Text>
+                <Text style={s.transferMeta}>{new Date(t.pickup_time).toLocaleString()} · {t.adults ?? t.passengers} adults{t.children ? ` + ${t.children} children` : ''} · {formatMoney(t.price)}</Text>
+                <Text style={s.transferPay}>Payment: {t.payment_status}</Text>
+              </View>
+            ))}
+            <View style={s.listHead}><Ionicons name="bed-outline" size={18} color={C.primary} /><Text style={s.listHeadText}>Bookings</Text></View>
+          </View>) : null}
         ListEmptyComponent={<View style={s.empty}>
           <View style={s.emptyIcon}><Ionicons name="calendar-outline" size={26} color={C.primary} /></View>
           <Text style={s.emptyTitle}>{when === 'all' ? emptyText : 'No bookings for these dates.'}</Text>
@@ -238,32 +295,58 @@ export default function MyTrips({ navigation, route }) {
 }
 
 const s = StyleSheet.create({
-  hero: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 12, marginTop: 10, marginBottom: 4, padding: 14, borderRadius: 14, backgroundColor: '#E3EDE8' },
-  heroIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  heroTitle: { fontSize: 15, fontWeight: '800', color: C.text },
-  heroText: { marginTop: 3, fontSize: 12, color: C.muted },
-  empty: { alignItems: 'center', margin: 18, padding: 20, borderRadius: 16, backgroundColor: '#fff' },
-  emptyIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#E3EDE8', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  emptyTitle: { fontSize: 16, fontWeight: '800', textAlign: 'center', marginBottom: 5, color: C.text },
-  filters: { backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1, borderColor: '#E6ECE8' },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap' },
+  signedOut: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 28 },
+  offline: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF3DC', paddingHorizontal: 14, paddingVertical: 8 },
+  offlineText: { marginLeft: 8, color: '#8A5A0B', fontSize: 12.5, fontWeight: '600', flex: 1 },
+
+  filters: { backgroundColor: '#fff', paddingHorizontal: 12, paddingTop: 4, paddingBottom: 10, borderBottomWidth: 1, borderColor: '#E6ECE8' },
+  tabs: { flexDirection: 'row' },
+  tabItem: { flex: 1, alignItems: 'center', paddingVertical: 10, borderBottomWidth: 3, borderBottomColor: 'transparent' },
+  tabItemOn: { borderBottomColor: C.primary },
+  tabText: { fontSize: 12, color: '#8A9892', marginTop: 3, fontWeight: '600' },
+  tabTextOn: { color: C.primary, fontWeight: '800' },
+  whenRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+  whenPill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#EEF2EF', marginRight: 6 },
+  whenPillOn: { backgroundColor: C.primary },
+  whenText: { fontSize: 12.5, fontWeight: '600', color: '#4A5A52' },
+  whenTextOn: { color: '#fff', fontWeight: '800' },
   fLabel: { fontSize: 13, fontWeight: '700', color: '#5F6B66', marginTop: 6, marginBottom: 2 },
+
+  listHead: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginTop: 4, marginBottom: 8 },
+  listHeadText: { fontWeight: '800', fontSize: 15, color: C.text, marginLeft: 8 },
+  transferCard: { marginHorizontal: 12, marginBottom: 10, padding: 14, borderRadius: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: '#E6ECE8' },
+  transferRoute: { fontWeight: '800', color: C.text, fontSize: 15 },
+  transferMeta: { color: '#6B7A72', fontSize: 12.5, marginTop: 4, lineHeight: 18 },
+  transferPay: { color: C.text, fontSize: 12.5, fontWeight: '600', marginTop: 4, textTransform: 'capitalize' },
+
+  empty: { alignItems: 'center', margin: 18, padding: 22, borderRadius: 18, backgroundColor: '#fff', borderWidth: 1, borderColor: '#E6ECE8' },
+  emptyIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#E3EDE8', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  emptyTitle: { fontSize: 16, fontWeight: '800', textAlign: 'center', marginBottom: 5, color: C.text },
+
+  card: { flexDirection: 'row', marginHorizontal: 12, marginBottom: 12, borderRadius: 18, backgroundColor: '#fff', borderWidth: 1, borderColor: '#E6ECE8', overflow: 'hidden' },
+  accent: { width: 5 },
+  cardBody: { flex: 1, padding: 14 },
   row: { flexDirection: 'row', alignItems: 'center' },
   dateBox: { width: 58, alignItems: 'center', paddingVertical: 8, borderRadius: 12, backgroundColor: '#E8F5EE' },
   dateDay: { fontSize: 22, fontWeight: '800', color: C.primary, lineHeight: 24 },
   dateMon: { fontSize: 12, fontWeight: '700', color: C.primary },
   dateTo: { fontSize: 10, color: '#5F7A6D', marginTop: 2 },
-  title: { fontSize: 16, fontWeight: '700', color: C.text },
-  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
+  title: { fontSize: 16, fontWeight: '800', color: C.text, lineHeight: 21 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
   meta: { fontSize: 12.5, color: '#6B7A72', marginLeft: 4, flexShrink: 1, textTransform: 'capitalize' },
-  tags: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 },
-  tag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginRight: 6, marginBottom: 2 },
-  tagText: { fontSize: 11.5, fontWeight: '700' },
-  tagGrey: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginRight: 6, marginBottom: 2, backgroundColor: '#EEF2EF' },
-  tagGreyText: { fontSize: 11.5, fontWeight: '600', color: '#4A5A52' },
   price: { fontSize: 16, fontWeight: '800', color: C.text },
+
+  tags: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 12 },
+  tag: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10, marginRight: 6, marginBottom: 4 },
+  tagText: { fontSize: 11.5, fontWeight: '700' },
+
   cancelInfo: { marginTop: 6, color: '#B42318', fontWeight: '700', fontSize: 13 },
-  transport: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderColor: '#E6ECE8' },
-  transportHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  transportTitle: { fontWeight: '700', color: C.primary, fontSize: 14 },
+  payBy: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF3E2', borderRadius: 10, padding: 10, marginTop: 8 },
+  payByText: { flex: 1, marginLeft: 8, color: '#8A4B0B', fontSize: 12.5, lineHeight: 17 },
+
+  transport: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderColor: '#E6ECE8' },
+  transportHead: { flexDirection: 'row', alignItems: 'center' },
+  transportTitle: { flex: 1, fontWeight: '700', color: C.primary, fontSize: 14, marginLeft: 8 },
+  infoLine: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 5 },
+  infoText: { flex: 1, marginLeft: 8, color: '#4A5A52', fontSize: 13, lineHeight: 18 },
 });
