@@ -51,18 +51,20 @@ const STEPS = ['Where', 'Choose', 'Pickup', 'Pay'];
 const ts = (d, t) => new Date(`${d}T${t}:00`).getTime() / 60000;
 const isStay = (c) => !!c.stay;
 const blk = (c) => { const s = ts(c.date, c.time); return { label: `“${c.l.title}”`, s, e: isStay(c) ? s + c.nights * 1440 - 180 : s + (c.info?.duration_minutes || 120) }; };
-const priceQuantity = (p, adults, children, childPriceSelected) => {
-  if (p.unit === 'per_group') return 1;
-  if (p.audience === 'child') return children;
-  return childPriceSelected ? adults : adults + children;
+const selectedPriceOptions = (c, p) => {
+  if (c.options?.some((x) => x.id === p.id)) return c.options.filter((x) => c.items.some((item) => item.id === x.id));
+  if (c.extras?.some((x) => x.id === p.id)) return c.extras.filter((x) => c.items.some((item) => item.id === x.id));
+  return c.items.filter((item) => item.kind === p.kind);
 };
-const hasChildPrice = (c, p) => {
-  const options = c.options?.some((x) => x.id === p.id) ? c.options
-    : c.extras?.some((x) => x.id === p.id) ? c.extras : c.items;
-  return options.some((x) => x.audience === 'child');
+const priceQuantity = (p, adults, children, selectedOptions) => {
+  if (p.unit === 'per_group') return 1;
+  const hasAdultPrice = selectedOptions.some((x) => x.audience !== 'child');
+  const hasChildPrice = selectedOptions.some((x) => x.audience === 'child');
+  if (p.audience === 'child') return hasAdultPrice ? children : adults + children;
+  return hasChildPrice ? adults : adults + children;
 };
 const lineTotal = (c, adults, children) => {
-  return c.items.reduce((s, p) => s + Number(p.price) * priceQuantity(p, adults, children, hasChildPrice(c, p)) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1), 0);
+  return c.items.reduce((s, p) => s + Number(p.price) * priceQuantity(p, adults, children, selectedPriceOptions(c, p)) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1), 0);
 };
 const mainPrices = (category, prices, stay = STAY.includes(category)) => {
   const all = uniq(prices);
@@ -187,12 +189,14 @@ export default function CustomTrip({ navigation }) {
       supabase.from('listings').select('id,title,category,opening_hours,event_date,schedule_type,starts_on,ends_on,open_time,duration_minutes').eq('id', x.id).single()]);
     const stay = STAY.includes(x.category) || !!x.accommodation_available;
     const options = mainPrices(x.category, pr, stay);
-    const required = options.filter((p) => !p.is_optional);
+    const required = [...options.filter((p) => !p.is_optional), ...(pr || []).filter((p) => !p.is_optional && !options.some((option) => option.id === p.id))];
     const adultOption = options.find((p) => p.audience !== 'child');
     const childOption = children > 0 ? options.find((p) => p.audience === 'child') : null;
-    const picked = required.length ? required : [adultOption, childOption].filter(Boolean);
+    const picked = [...required];
+    if (!picked.some((p) => p.audience !== 'child') && adultOption) picked.push(adultOption);
+    if (childOption && !picked.some((p) => p.audience === 'child')) picked.push(childOption);
     if (!picked.length && options.length) picked.push(options[0]);
-    const extras = (pr || []).filter((p) => p.is_optional && ['facility', 'activity'].includes(p.kind));
+    const extras = (pr || []).filter((p) => p.is_optional && ['entrance', 'ticket', 'facility', 'activity'].includes(p.kind) && !options.some((option) => option.id === p.id));
     const fixedDate = info?.schedule_type === 'one_time' && info.event_date ? new Date(info.event_date) : null;
     let slot = fixedDate ? { date: ymd(fixedDate), time: `${String(fixedDate.getHours()).padStart(2, '0')}:${String(fixedDate.getMinutes()).padStart(2, '0')}` } : { date: startDay, time: stay ? '14:00' : '09:00' };
     if (!fixedDate) { // find the first free slot inside the trip dates
@@ -204,6 +208,18 @@ export default function CustomTrip({ navigation }) {
     setChosen((c) => ({ ...c, [x.id]: { l: x, info, options, extras, items: picked, stay, date: slot.date, time: slot.time, nights: 1, fixed: !!fixedDate } }));
   };
   const setField = (id, patch) => setChosen((c) => ({ ...c, [id]: { ...c[id], ...patch } }));
+  const setChildCount = (count) => {
+    setChildren(count);
+    setChosen((current) => Object.fromEntries(Object.entries(current).map(([id, c]) => {
+      const childOptions = c.options.filter((p) => p.audience === 'child');
+      const items = count === 0
+        ? c.items.filter((p) => !childOptions.some((option) => option.id === p.id))
+        : childOptions.length && !c.items.some((p) => childOptions.some((option) => option.id === p.id))
+          ? [...c.items, childOptions[0]]
+          : c.items;
+      return [id, { ...c, items }];
+    })));
+  };
   const pickPrice = (id, p) => setChosen((current) => {
     const item = current[id];
     if (!item) return current;
@@ -282,7 +298,7 @@ export default function CustomTrip({ navigation }) {
         if (b.error) throw b.error;
         if (c.items.length) {
           const bi = await supabase.from('booking_items').insert(c.items.map((p) => {
-            const quantity = priceQuantity(p, adults, children, hasChildPrice(c, p));
+            const quantity = priceQuantity(p, adults, children, selectedPriceOptions(c, p));
             return { booking_id: b.data.id, price_id: p.id, label: p.label, quantity, unit_price: p.price,
               amount: Number(p.price) * quantity * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1) };
           }));
@@ -332,7 +348,7 @@ export default function CustomTrip({ navigation }) {
             <View style={{ flexDirection: 'row', alignItems: 'center' }}><DateField style={{ flex: 1 }} value={start} minimumDate={new Date()} onChange={(d) => { setStart(d); setChosen({}); }} /></View>
             <Stepper label="Days" value={days} onChange={(n) => { setDays(n); setChosen({}); }} min={1} max={60} />
             <Stepper label="Adults" value={adults} onChange={setAdults} min={1} max={500} />
-            <Stepper label="Children" value={children} onChange={setChildren} min={0} max={500} />
+            <Stepper label="Children" value={children} onChange={setChildCount} min={0} max={500} />
             <Muted>{people} travelers total · daily activities are optional</Muted>
             <Label>Contact phone number</Label><PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} />
             <Muted>{startDay} → {endDay}{country ? ` · ${region ? region + ', ' : ''}${country}` : ''}</Muted>

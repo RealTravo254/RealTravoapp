@@ -87,7 +87,7 @@ export default function ListingForm({ route, navigation }) {
   // new listing: if the chosen category is no longer allowed (e.g. hotel already listed), jump to the first allowed one
   useEffect(() => {
     if (listing || !existing || !catOptions.length) return;
-    if (!catOptions.includes(f.category)) setF((x) => ({ ...x, category: catOptions[0] }));
+    if (!catOptions.includes(f.category)) setF((x) => ({ ...x, category: catOptions[0], accommodation_available: ['hotel', 'resort', 'campsite', 'airbnb'].includes(catOptions[0]) }));
   }, [existing, providerId]);
 
   const [prices, setPrices] = useState([]); const [pricesLoaded, setPricesLoaded] = useState(!listing);
@@ -227,7 +227,7 @@ export default function ListingForm({ route, navigation }) {
   return (
     <ScrollView contentContainerStyle={{ padding: 12 }} keyboardShouldPersistTaps="handled">
       {!approved.length && <Text style={{ color: '#D64545' }}>No approved provider profile yet.</Text>}
-      {!listing && approved.length > 1 && <><Label>Hosting as</Label><View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{approved.map((p) => <View key={p.id} style={{ marginBottom: 6 }}><Chip label={`${PROV_LABEL[p.category] || p.category} · ${p.business_name}`} active={providerId === p.id} onPress={() => { setProviderId(p.id); setF((x) => ({ ...x, category: (CAT_OPTS[p.category] || [])[0] || x.category })); }} /></View>)}</View></>}
+      {!listing && approved.length > 1 && <><Label>Hosting as</Label><View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{approved.map((p) => <View key={p.id} style={{ marginBottom: 6 }}><Chip label={`${PROV_LABEL[p.category] || p.category} · ${p.business_name}`} active={providerId === p.id} onPress={() => { const category = (CAT_OPTS[p.category] || [])[0] || f.category; setProviderId(p.id); setF((x) => ({ ...x, category, accommodation_available: ['hotel', 'resort', 'campsite', 'airbnb'].includes(category) })); }} /></View>)}</View></>}
       {providerNote && <Muted>{providerNote}</Muted>}
 
       <Label>What are you listing?</Label>

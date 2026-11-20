@@ -34,7 +34,7 @@ export async function refreshCheckinCache(userId) {
 
   const { data, error } = await supabase
     .from('bookings')
-    .select('id,qr_token,status,payment_status,checked_in_at,start_date,end_date,start_time,guests,total,listing_id,booking_items(id,label,quantity,unit_price,amount),listings!inner(id,title,category,owner_id)')
+    .select('id,qr_token,status,payment_status,checked_in_at,start_date,end_date,start_time,guests,adults,children,total,listing_id,booking_items(id,label,quantity,unit_price,amount),listings!inner(id,title,category,owner_id)')
     .in('listing_id', listingIds)
     .in('status', ['accepted', 'completed'])
     .eq('payment_status', 'paid')

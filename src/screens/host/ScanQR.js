@@ -104,7 +104,7 @@ export default function ScanQR() {
             <View style={s.resultCard}>
               <Text style={s.guestName}>{item.listings?.title || 'Booking'}</Text>
               <Text style={s.guestSub}>{item.start_date}{item.end_date && item.end_date !== item.start_date ? ` to ${item.end_date}` : ''}</Text>
-              <Row icon="people-outline" label="Guests" value={String(item.guests)} />
+              <Row icon="people-outline" label="Guests" value={`${item.adults ?? item.guests} adults${item.children ? ` + ${item.children} children` : ''}`} />
               <Row icon="card-outline" label="Payment" value={item.payment_status} />
             </View>
           )}
@@ -247,7 +247,7 @@ export default function ScanQR() {
             <View style={s.divider} />
 
             <Row icon="calendar-outline" label="Stay" value={`${b.start_date} to ${b.end_date}`} />
-            <Row icon="people-outline" label="Guests" value={String(b.guests ?? '-')} />
+            <Row icon="people-outline" label="Guests" value={`${b.adults ?? b.guests ?? '-'} adults${b.children ? ` + ${b.children} children` : ''}`} />
             <Row icon="flag-outline" label="Status" value={String(b.status ?? '-')} />
             <Row
               icon="card-outline"
