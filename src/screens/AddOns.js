@@ -117,7 +117,7 @@ export default function AddOns({ route, navigation }) {
         await supabase.from('booking_items').insert(c.items.map((p) => ({ booking_id: r.data.id, price_id: p.id, label: p.label, quantity: guests, unit_price: p.price,
           amount: Number(p.price) * (p.unit === 'per_group' ? 1 : guests) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1) })));
       }
-      if (!payNow) { Alert.alert('Saved in My bookings', 'Pay before the time shown there, or the booking is cancelled automatically.'); toTrips(); return; }
+      if (!payNow) { Alert.alert('Booking pending', 'Open My bookings → Pending and tap Pay now to complete your booking before it expires.'); toTrips(); return; }
       const p = pkg ? await startPayment({ purpose: 'package', packageId: pkg.id }) : await startPayment({ purpose: 'booking', bookingId: mainRow.id, useBalance });
       if (p.paid_with_balance) { Alert.alert('Booked', 'Paid from your balance.'); toTrips(); return; }
       navigation.replace('Pay', { url: p.authorization_url });

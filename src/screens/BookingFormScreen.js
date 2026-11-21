@@ -188,7 +188,7 @@ export default function BookingFormScreen({ route, navigation }) {
           amount: Number(p.price) * (p.unit === 'per_group' ? 1 : guests) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1) })));
       }
 
-      if (!payNow) { Alert.alert('Saved in My bookings', 'Pay before the time shown there, or the booking is cancelled automatically.'); navigation.popToTop(); navigation.navigate('Tabs', { screen: 'Trips', params: { tab: 'pending', ts: Date.now() } }); return; }
+      if (!payNow) { Alert.alert('Booking pending', 'Open My bookings → Pending and tap Pay now to complete your booking before it expires.'); navigation.popToTop(); navigation.navigate('Tabs', { screen: 'Trips', params: { tab: 'pending', ts: Date.now() } }); return; }
       const p = pkg ? await startPayment({ purpose: 'package', packageId: pkg.id }) : await startPayment({ purpose: 'booking', bookingId: b.id });
       navigation.replace('Pay', { url: p.authorization_url });
     } catch (e) { Alert.alert('Could not book', e.message); } finally { setBusy(false); }

@@ -60,7 +60,10 @@ npx expo start
 Menu drawer, restyled profile, airports (admin), app-calculated distance with map routes, map pickers, per-item booking times, pay later, host ID verification, inquiries, reminders,
 bundled category images (no external links).
 Extra packages: `npx expo install expo-print expo-sharing @expo/vector-icons expo-file-system`
-Email reminders: set `RESEND_API_KEY` and `EMAIL_FROM` secrets and schedule the `send-emails` edge function every 5 minutes.
+Pending bookings create an in-app notification and queue an email telling the guest how to finish payment. Deploy `supabase/functions/send-emails` with
+`supabase functions deploy send-emails --no-verify-jwt`, then set the Supabase secrets `RESEND_API_KEY`, `EMAIL_FROM` (a verified Resend sender),
+and `EMAIL_CRON_SECRET`. Schedule a POST to `/functions/v1/send-emails` every 5 minutes with
+`Authorization: Bearer <EMAIL_CRON_SECRET>`. Run `supabase/app-update-9.sql` in the SQL Editor to enable the queue and booking notification trigger.
 
 ## Version 5
 Terms & privacy are managed in Admin -> Legal (realtravo.com page address and/or pasted text). Users must tick the box to sign in or create an account,

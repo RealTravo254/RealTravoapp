@@ -144,6 +144,7 @@ export default function MyTrips({ navigation, route }) {
   const [to, setTo] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 30); return d; });
   const [rows, setRows] = useState([]); const [page, setPage] = useState(0); const [more, setMore] = useState(false);
   const [loading, setLoading] = useState(true); const [offline, setOffline] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [transfers, setTransfers] = useState([]); const [feePct, setFeePct] = useState(20);
   const changeTab = (k) => { setPage(0); setTab(k); };
   const changeWhen = (k) => { setPage(0); setWhen(k); };
@@ -151,6 +152,7 @@ export default function MyTrips({ navigation, route }) {
 
   const load = useCallback(async () => {
     if (!session) return;
+    setLoadError('');
     const key = `bookings:${session.user.id}:${tab}:${page}:${when}:${when === 'range' ? ymd(from) + ymd(to) : ''}`;
     const cached = await AsyncStorage.getItem(key);
     if (cached) {
@@ -164,7 +166,7 @@ export default function MyTrips({ navigation, route }) {
     } else setLoading(true);
     try {
       const today = ymd(new Date());
-      let q = supabase.from('bookings').select('*, listings(title,category,photos), booking_items(*), booking_dropoffs(*), trip_packages(is_custom,trip_type,pickup_location,pickup_time)').eq('user_id', session.user.id);
+      let q = supabase.from('bookings').select('*, listings(title,category,photos)').eq('user_id', session.user.id);
       if (tab === 'pending') q = q.eq('status', 'pending');
       else if (tab === 'upcoming') q = q.eq('status', 'accepted').gte('end_date', today);
       else if (tab === 'completed') q = q.or(`status.eq.completed,and(status.eq.accepted,end_date.lt.${today})`);
@@ -176,14 +178,33 @@ export default function MyTrips({ navigation, route }) {
       const { data, error } = await q.order(tab === 'upcoming' ? 'start_date' : 'created_at', { ascending: tab === 'upcoming' })
         .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
       if (error || !data) throw error || new Error('offline');
-      const list = data.slice(0, PAGE_SIZE); const hasMore = data.length > PAGE_SIZE;
+      const base = data.slice(0, PAGE_SIZE);
+      const bookingIds = base.map((b) => b.id);
+      const packageIds = [...new Set(base.map((b) => b.package_id).filter(Boolean))];
+      const [dropoffsResult, packagesResult] = await Promise.all([
+        bookingIds.length ? supabase.from('booking_dropoffs').select('booking_id,dropoff_location').in('booking_id', bookingIds) : Promise.resolve({ data: [], error: null }),
+        packageIds.length ? supabase.from('trip_packages').select('id,is_custom,trip_type,pickup_location,pickup_time').in('id', packageIds) : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (dropoffsResult.error) console.warn('Could not load booking drop-offs:', dropoffsResult.error.message);
+      if (packagesResult.error) console.warn('Could not load trip details:', packagesResult.error.message);
+      const dropoffs = new Map((dropoffsResult.data || []).map((d) => [d.booking_id, [d]]));
+      const packages = new Map((packagesResult.data || []).map((p) => [p.id, p]));
+      const list = base.map((b) => ({
+        ...b,
+        booking_dropoffs: dropoffs.get(b.id) || [],
+        trip_packages: packages.has(b.package_id) ? [packages.get(b.package_id)] : [],
+      }));
+      const hasMore = data.length > PAGE_SIZE;
       setRows(list); setMore(hasMore); setOffline(false);
       await AsyncStorage.setItem(key, JSON.stringify({ list, hasMore })); // copy kept on the phone
       supabase.from('airport_transfers').select('*').eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(5).then(({ data: t }) => setTransfers(t || []));
       supabase.from('app_settings').select('custom_cancel_fee_percent').eq('id', 1).maybeSingle().then(({ data: st }) => st && setFeePct(Number(st.custom_cancel_fee_percent ?? 20)));
       refresh();
     } catch (e) {
-      if (!cached) setRows([]);
+      const message = e?.message || 'Could not refresh your bookings.';
+      console.warn('Could not load bookings:', message);
+      setLoadError(message);
+      if (!cached) { setRows([]); setMore(false); setOffline(false); }
     }
     setLoading(false);
   }, [page, session, tab, when, from, to]);
@@ -264,7 +285,7 @@ export default function MyTrips({ navigation, route }) {
       {offline && (
         <View style={s.offline}>
           <Ionicons name="cloud-offline-outline" size={16} color="#8A5A0B" />
-          <Text style={s.offlineText}>Showing your saved copy. Reconnect to refresh.</Text>
+          <Text style={s.offlineText}>{loadError ? `Refresh failed: ${loadError}` : 'Showing your saved copy. Reconnect to refresh.'}</Text>
         </View>
       )}
       {Filters}
@@ -282,7 +303,12 @@ export default function MyTrips({ navigation, route }) {
             ))}
             <View style={s.listHead}><Ionicons name="bed-outline" size={18} color={C.primary} /><Text style={s.listHeadText}>Bookings</Text></View>
           </View>) : null}
-        ListEmptyComponent={<View style={s.empty}>
+        ListEmptyComponent={loadError ? <View style={s.empty}>
+          <View style={s.emptyIcon}><Ionicons name="cloud-offline-outline" size={26} color={C.primary} /></View>
+          <Text style={s.emptyTitle}>Could not load your bookings</Text>
+          <Muted style={{ textAlign: 'center' }}>{loadError}</Muted>
+          <Btn title="Try again" onPress={load} />
+        </View> : <View style={s.empty}>
           <View style={s.emptyIcon}><Ionicons name="calendar-outline" size={26} color={C.primary} /></View>
           <Text style={s.emptyTitle}>{when === 'all' ? emptyText : 'No bookings for these dates.'}</Text>
           <Muted style={{ textAlign: 'center' }}>Your bookings will appear here when you make them.</Muted>
