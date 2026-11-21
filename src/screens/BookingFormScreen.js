@@ -15,8 +15,10 @@ import { abs, durationOf, hhmm, addDays, freeSlot, mainBlocks, addonClashes, ove
 import { startPayment } from '../lib/payments';
 import { isValidContactPhone } from '../lib/phone';
 import { C } from '../lib/theme';
+import ListingInfoModal from '../components/ListingInfoModal';
 
 const GAP = 30; // minutes between add-ons
+const ADDON_PAGE_SIZE = 8;
 const GROUPS = {
   all: { label: '🌍 All', cats: ['hotel', 'campsite', 'attraction', 'airbnb', 'activity', 'event', 'guide'] },
   stay: { label: '🛏️ Stay', cats: ['hotel', 'campsite', 'airbnb'] },
@@ -42,7 +44,7 @@ export default function BookingFormScreen({ route, navigation }) {
   const [note, setNote] = useState(''); const [contactPhone, setContactPhone] = useState(''); const [busy, setBusy] = useState(false);
 
   // pickup / drop-off / return: main booking only
-  const [transfer, setTransfer] = useState(false); const [tripType, setTripType] = useState('oneway');
+  const [transfer, setTransfer] = useState(false); const [transferOpen, setTransferOpen] = useState(false); const [tripType, setTripType] = useState('oneway');
   const [pickupLoc, setPickupLoc] = useState(null); const [pickupTime, setPickupTime] = useState('08:00');
   const [sameDrop, setSameDrop] = useState(true); const [dropLoc, setDropLoc] = useState(null);
   const [returnDate, setReturnDate] = useState(null); const [returnTime, setReturnTime] = useState('17:00');
@@ -51,6 +53,7 @@ export default function BookingFormScreen({ route, navigation }) {
 
   // add-ons from other categories
   const [group, setGroup] = useState('all'); const [near, setNear] = useState(null); const [chosen, setChosen] = useState({});
+  const [addonPage, setAddonPage] = useState(0); const [addonHasMore, setAddonHasMore] = useState(false); const [detailItem, setDetailItem] = useState(null);
 
   useEffect(() => { if (!contactPhone && profile?.phone) setContactPhone(profile.phone); }, [profile?.phone]);
   useEffect(() => { (async () => {
@@ -62,9 +65,16 @@ export default function BookingFormScreen({ route, navigation }) {
     }
   })(); supabase.from('vehicles').select('*').eq('active', true).order('max_passengers').then(({ data }) => setVehicles(data || [])); }, [slug]);
 
-  useEffect(() => { if (!l) return; setNear(null);
-    supabase.rpc('nearby_listings', { p_lat: l.lat, p_lng: l.lng, p_radius_km: 40, p_exclude: l.category, p_categories: GROUPS[group].cats.filter((c) => c !== l.category), lim: 15 })
-      .then(({ data }) => setNear(data || [])); }, [l, group]);
+  useEffect(() => { if (!l) return undefined; let active = true; setNear(null);
+    supabase.rpc('nearby_listings', { p_lat: l.lat, p_lng: l.lng, p_radius_km: 40, p_exclude: l.category, p_categories: GROUPS[group].cats.filter((c) => c !== l.category), lim: (addonPage + 1) * ADDON_PAGE_SIZE + 1 })
+      .then(({ data, error }) => {
+        if (error) throw error;
+        if (!active) return;
+        const all = data || []; const start = addonPage * ADDON_PAGE_SIZE;
+        setNear(all.slice(start, start + ADDON_PAGE_SIZE)); setAddonHasMore(all.length > start + ADDON_PAGE_SIZE);
+      }).catch((error) => { console.warn('Could not load booking add-ons:', error.message); if (active) { setNear([]); setAddonHasMore(false); } });
+    return () => { active = false; };
+  }, [l, group, addonPage]);
 
   const isEvent = !!l && l.category === 'event' && !!l.event_date;
   const needsMeeting = !!l && ['guide', 'activity', 'event'].includes(l.category); const mustMeet = !!l && l.category === 'guide';
@@ -212,11 +222,15 @@ export default function BookingFormScreen({ route, navigation }) {
       {needsMeeting && (
         <Card style={{ marginHorizontal: 0, marginTop: 10 }}>
           <Check on={transfer} disabled={mustMeet} onPress={() => setTransfer(!transfer)}>
-            <Text style={{ fontWeight: '800' }}>🚐 {mustMeet ? 'Pickup (required)' : 'Pickup and drop-off'}</Text>
-            <Muted>For the main booking only, not for add-ons.</Muted>
+            <Text style={{ fontWeight: '800' }}>🚐 {mustMeet ? 'Pickup / drop-off (required)' : 'Add pickup or drop-off'}</Text>
+            <Muted>{transfer ? 'Choose pickup only or pickup with return drop-off.' : 'Optional — select this if you need transport.'}</Muted>
           </Check>
-          {transfer && <>
-            <Seg value={tripType} onChange={setTripType} options={[['oneway', 'Pickup only'], ['return', 'Pickup and return']]} />
+          {transfer && <TouchableOpacity onPress={() => setTransferOpen((open) => !open)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10, borderRadius: 10, backgroundColor: '#F2F8F5' }}>
+            <Text style={{ color: C.primary, fontWeight: '700' }}>{transferOpen ? 'Hide transport details' : pickupLoc?.label || 'Choose pickup and drop-off details'}</Text>
+            <Text style={{ color: C.primary }}>{transferOpen ? '⌃' : '⌄'}</Text>
+          </TouchableOpacity>}
+          {transfer && transferOpen && <>
+            <Seg value={tripType} onChange={setTripType} options={[['oneway', 'Pickup only'], ['return', 'Pickup + drop-off']]} />
             <Label>Pickup place</Label>
             <LocBtns set={setPickupLoc} title="Choose your pickup location" loc={pickupLoc} />
             <PickupTimeField times={l.pickup_times} value={pickupTime} onChange={setPickupTime} />
@@ -241,12 +255,14 @@ export default function BookingFormScreen({ route, navigation }) {
 
       <Label>Add more to your trip (optional)</Label>
       <Muted>Tick to add, untick to remove. ℹ️ Add-ons can happen during your main booking, but not at the same time as each other. Leave {GAP} minutes between add-ons.</Muted>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 }}>{Object.entries(GROUPS).map(([k, g]) => <Chip key={k} label={g.label} active={group === k} onPress={() => setGroup(k)} />)}</View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 }}>{Object.entries(GROUPS).map(([k, g]) => <Chip key={k} label={g.label} active={group === k} onPress={() => { setGroup(k); setAddonPage(0); }} />)}</View>
       {near === null ? <Loader /> : near.length === 0 ? <Muted style={{ textAlign: 'center', margin: 16 }}>Nothing nearby yet.</Muted> :
         near.map((x) => { const c = chosen[x.id]; return (
-          <Card key={x.id} onPress={() => toggle(x)} style={{ marginHorizontal: 0, borderWidth: 2, borderColor: c ? C.primary : C.border }}>
-            <Text style={{ fontWeight: '700' }}>{c ? '☑️ ' : '⬜ '}{x.title}</Text>
-            <Muted>{x.category} · {x.distance_km.toFixed(1)} km away · from {x.from_price != null ? formatMoney(x.from_price) : 'On request'}{c ? ' · tap to remove' : ''}</Muted>
+          <Card key={x.id} style={{ marginHorizontal: 0, padding: 10, borderWidth: 2, borderColor: c ? C.primary : C.border }}>
+            <TouchableOpacity onPress={() => toggle(x)} activeOpacity={0.75}>
+              <Text style={{ fontWeight: '700' }}>{c ? '☑️ ' : '⬜ '}{x.title}</Text>
+              <Muted>{x.category} · {x.distance_km.toFixed(1)} km away · from {x.from_price != null ? formatMoney(x.from_price) : 'On request'}{c ? ' · selected' : ''}</Muted>
+            </TouchableOpacity>
             {c && <>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <DateField style={{ flex: 1, marginRight: 8 }} value={new Date(c.date + 'T12:00:00')} disabled={c.fixed} suffix={c.fixed ? ' (event date)' : ''}
@@ -257,7 +273,16 @@ export default function BookingFormScreen({ route, navigation }) {
               <Muted>{formatMoney(lineTotal(c))} for {guests} {guests === 1 ? 'guest' : 'guests'}</Muted>
               {overlapsBase(blockOf(c), mb.blocks) && <Muted style={{ color: C.ok }}>ℹ️ This is during your main booking. That's allowed.</Muted>}
             </>}
+            <View style={{ flexDirection: 'row', marginTop: 6 }}>
+              <Btn style={{ flex: 1, marginHorizontal: 3, marginVertical: 0 }} kind="ghost" title="Details" onPress={() => setDetailItem(x)} />
+              <Btn style={{ flex: 1, marginHorizontal: 3, marginVertical: 0 }} title={c ? 'Remove' : 'Add'} onPress={() => toggle(x)} />
+            </View>
           </Card>); })}
+      {near !== null && (addonPage > 0 || addonHasMore) && <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 8 }}>
+        <Btn style={{ flex: 1 }} kind="ghost" title="← Previous" disabled={addonPage === 0} onPress={() => setAddonPage((n) => Math.max(0, n - 1))} />
+        <Text style={{ paddingHorizontal: 10, fontWeight: '700' }}>Page {addonPage + 1}</Text>
+        <Btn style={{ flex: 1 }} kind="ghost" title="Next →" disabled={!addonHasMore} onPress={() => setAddonPage((n) => n + 1)} />
+      </View>}
 
       {problems.map((p, i) => <Text key={i} style={{ color: C.danger, fontWeight: '700', marginTop: 4 }}>⚠️ {p}</Text>)}
 
@@ -272,6 +297,7 @@ export default function BookingFormScreen({ route, navigation }) {
       <Btn title="Pay now" onPress={() => save(true)} disabled={busy || !!problem} />
       <Btn kind="ghost" title="Pay later (saved in My bookings)" onPress={() => save(false)} disabled={busy || !!problem} />
       <View style={{ height: 30 }} />
+      <ListingInfoModal listing={detailItem} onClose={() => setDetailItem(null)} formatMoney={formatMoney} />
     </ScrollView>
   );
 }

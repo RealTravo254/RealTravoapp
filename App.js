@@ -126,18 +126,18 @@ function Root() {
       <Stack.Screen name="Auth" component={S.AuthScreen} options={{ title: 'Sign in', presentation: 'modal', ...none }} />
       <Stack.Screen name="CompleteProfile" component={S.CompleteProfile} options={{ title: 'Complete your profile', ...none }} />
       <Stack.Screen name="Notifications" component={S.Notifications} options={{ title: 'Notifications', ...none }} />
-      <Stack.Screen name="ListingDetail" component={G.ListingDetail} options={{ title: '' }} />
+      <Stack.Screen name="ListingDetail" component={G.ListingDetail} options={{ title: '', ...bookingHeader }} />
       <Stack.Screen name="BookingDetail" component={S.BookingDetail} options={{ title: 'Booking details' }} />
-      <Stack.Screen name="Booking" component={S.BookingScreen} options={{ title: 'Book', ...bookingHeader }} />
+      <Stack.Screen name="Booking" component={S.BookingScreen} options={{ title: 'Complete your booking', ...bookingHeader }} />
       <Stack.Screen name="EditBooking" component={S.EditBooking} options={{ title: 'Edit booking', ...bookingHeader }} />
       <Stack.Screen name="Inquiry" component={S.Inquiry} options={{ title: 'Ask the host' }} />
       <Stack.Screen name="TravelMap" component={S.TravelMap} />
       <Stack.Screen name="PickLocation" component={S.PickLocation} options={{ ...none }} />
-      <Stack.Screen name="AddOns" component={S.AddOns} options={{ title: 'Complete your trip', ...bookingHeader }} />
+      <Stack.Screen name="AddOns" component={S.AddOns} options={{ title: 'Complete your travel', ...bookingHeader }} />
       <Stack.Screen name="Chat" component={S.Chat} />
       <Stack.Screen name="TripBuilder" component={S.TripBuilder} options={{ title: tr('custom') }} />
-      <Stack.Screen name="AirportTransfer" component={S.AirportTransfer} options={{ title: tr('transfer') }} />
-      <Stack.Screen name="CustomTrip" component={S.CustomTrip} options={{ title: 'Custom trip request' }} />
+      <Stack.Screen name="AirportTransfer" component={S.AirportTransfer} options={{ title: tr('transfer'), ...bookingHeader }} />
+      <Stack.Screen name="CustomTrip" component={S.CustomTrip} options={{ title: 'Custom trip request', ...bookingHeader }} />
       <Stack.Screen name="Pay" component={S.PayWebView} options={{ title: 'Pay securely' }} />
       <Stack.Screen name="Review" component={S.ReviewScreen} />
       <Stack.Screen name="EditProfile" component={S.EditProfile} options={{ title: 'Edit profile', ...none }} />
@@ -146,7 +146,7 @@ function Root() {
       <Stack.Screen name="Inbox" component={S.Inbox} options={{ title: 'Messages' }} />
       <Stack.Screen name="ChangeEmail" component={S.ChangeEmail} options={{ title: 'Change email', ...none }} />
       <Stack.Screen name="BookingForms" component={S.BookingForms} options={{ title: 'Booking forms' }} />
-      <Stack.Screen name="BookingForm" component={S.BookingFormScreen} options={{ title: 'Booking form', ...bookingHeader }} />
+      <Stack.Screen name="BookingForm" component={S.BookingFormScreen} options={{ title: 'Complete your booking', ...bookingHeader }} />
       <Stack.Screen name="ProviderRegister" component={S.ProviderRegister} options={{ title: 'Become a host' }} />
       <Stack.Screen name="ListingForm" component={S.ListingForm} options={{ title: 'Listing' }} />
       <Stack.Screen name="HostBookings" component={S.HostBookings} options={{ title: 'Bookings' }} />

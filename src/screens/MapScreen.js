@@ -22,7 +22,12 @@ export default function MapScreen({ navigation }) {
       <View style={{ flex: 1 }}>
         <MapView style={{ flex: 1 }} showsUserLocation showsMyLocationButton initialRegion={{ latitude: -6.37, longitude: 34.89, latitudeDelta: 12, longitudeDelta: 12 }}>
           {rows.map((r) => (
-            <Marker key={r.id} coordinate={{ latitude: r.lat, longitude: r.lng }} pinColor={PIN[r.category]}>
+            <Marker key={r.id} coordinate={{ latitude: r.lat, longitude: r.lng }} pinColor={PIN[r.category]} title={r.title} description={r.category}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 7, paddingVertical: 4, borderWidth: 1, borderColor: C.primary, elevation: 3, maxWidth: 180 }}>
+                <Ionicons name="navigate" size={13} color={C.primary} />
+                <Text numberOfLines={1} style={{ maxWidth: 150, marginLeft: 4, color: C.text, fontSize: 10, fontWeight: '700' }}>{r.title}</Text>
+                <Text style={{ marginLeft: 4, color: C.muted, fontSize: 9 }}>{r.category}</Text>
+              </View>
               <Callout onPress={() => navigation.navigate('ListingDetail', { id: r.id })}>
                 <Text style={{ fontWeight: '700' }}>{r.title}</Text><Text>{r.category} · tap for details</Text>
                 <Text onPress={() => navigation.navigate('TravelMap', { dest: { lat: r.lat, lng: r.lng, title: r.title } })} style={{ color: C.primary }}>🧭 Navigate</Text>

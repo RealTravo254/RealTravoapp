@@ -30,7 +30,7 @@ function collect(children, out = { markers: [], lines: [] }) {
           });
         }
       });
-      out.markers.push({ lat: co.latitude, lng: co.longitude, color: COLORS[c.props.pinColor] || '#1B4432', title: c.props.title, texts, actions, onPress: c.props.onPress, calloutPress });
+      out.markers.push({ lat: co.latitude, lng: co.longitude, color: COLORS[c.props.pinColor] || '#1B4432', title: c.props.title, description: c.props.description, texts, actions, onPress: c.props.onPress, calloutPress });
     } else if (c.type === Polyline) {
       out.lines.push({ pts: (c.props.coordinates || []).map((p) => [p.latitude, p.longitude]), color: c.props.strokeColor || '#1B4432', w: c.props.strokeWidth || 4 });
     } else if (c.props?.children) collect(c.props.children, out);
@@ -40,7 +40,9 @@ function collect(children, out = { markers: [], lines: [] }) {
 
 const html = (lat, lng, zoom) => `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<style>html,body,#m{height:100%;margin:0;background:#E3EDE8}.pin{width:18px;height:18px;border-radius:50%;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+<style>html,body,#m{height:100%;margin:0;background:#E3EDE8}.pin{display:inline-block;width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5);vertical-align:middle}
+.marker-label{display:inline-block;max-width:180px;margin-left:4px;padding:3px 6px;border-radius:8px;background:#fff;color:#14231c;font:700 10px sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.4);vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.marker-label small{display:block;color:#65746c;font:500 9px sans-serif}
 .leaflet-popup-content{font-family:sans-serif}.leaflet-popup-content button{margin:6px 6px 0 0;padding:7px 12px;border:0;border-radius:8px;background:#1B4432;color:#fff;font-weight:700}</style></head>
 <body><div id="m"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
 var map=L.map('m').setView([${lat},${lng}],${zoom});
@@ -53,10 +55,11 @@ document.addEventListener('click',function(e){var b=e.target.closest&&e.target.c
 window.setData=function(d){layer.clearLayers();
  d.lines.forEach(function(l){L.polyline(l.pts,{color:l.color,weight:l.w}).addTo(layer);});
  d.markers.forEach(function(m,i){
-  var ic=L.divIcon({className:'',html:'<div class="pin" style="background:'+m.color+'"></div>',iconSize:[18,18],iconAnchor:[9,9]});
+  var label=m.title?'<span class="marker-label">↗ '+esc(m.title)+(m.description?'<small>'+esc(m.description)+'</small>':'')+'</span>':'';
+  var ic=L.divIcon({className:'',html:'<span class="pin" style="background:'+m.color+'"></span>'+label,iconSize:[210,24],iconAnchor:[9,12]});
   var mk=L.marker([m.lat,m.lng],{icon:ic}).addTo(layer);
   var head=m.title||m.texts[0]||'', rest=m.title?m.texts:m.texts.slice(1);
-  if(head||m.hasCallout||m.actions.length){var h='<b>'+esc(head)+'</b>';rest.forEach(function(t){h+='<br>'+esc(t);});
+  if(head||m.hasCallout||m.actions.length){var h='<b>'+esc(head)+'</b>';if(m.description)h+='<br>'+esc(m.description);rest.forEach(function(t){h+='<br>'+esc(t);});
    if(m.hasCallout)h+='<br><button data-t="callout" data-i="'+i+'">Details</button>';
    m.actions.forEach(function(a,j){h+='<button data-t="action" data-i="'+i+'" data-j="'+j+'">'+esc(a)+'</button>';});mk.bindPopup(h);}
   mk.on('click',function(){send({t:'marker',i:i});});});};
@@ -71,14 +74,14 @@ const OsmMap = forwardRef(function OsmMap(props, ref) {
   const reg = props.initialRegion || { latitude: -4.5, longitude: 36.5, latitudeDelta: 12 };
   const zoom = Math.max(3, Math.min(17, Math.round(Math.log2(360 / (reg.latitudeDelta || 12)))));
   const source = useMemo(() => ({ html: html(reg.latitude, reg.longitude, zoom), baseUrl: 'https://realtravo.com/' }), []);
-  const data = collect(props.children); const dataKey = JSON.stringify(data.markers.map((m) => [m.lat, m.lng, m.color, m.title, m.texts, m.actions.map((a) => a.label), !!m.calloutPress])) + JSON.stringify(data.lines);
+  const data = collect(props.children); const dataKey = JSON.stringify(data.markers.map((m) => [m.lat, m.lng, m.color, m.title, m.description, m.texts, m.actions.map((a) => a.label), !!m.calloutPress])) + JSON.stringify(data.lines);
   const run = (js) => web.current?.injectJavaScript(js + ';true;');
   useImperativeHandle(ref, () => ({
     fitToCoordinates: (coords, o) => run(`window.fit(${JSON.stringify(coords.map((c) => [c.latitude, c.longitude]))},${o?.edgePadding?.top ? 40 : 30})`),
     animateToRegion: (r) => run(`window.go(${r.latitude},${r.longitude},${Math.max(3, Math.min(17, Math.round(Math.log2(360 / (r.latitudeDelta || 0.05)))))})`),
     animateCamera: (o) => run(`window.go(${o.center.latitude},${o.center.longitude},${o.zoom || 15})`),
   }));
-  useEffect(() => { if (!ready) return; run(`window.setData(${JSON.stringify({ lines: data.lines, markers: data.markers.map((m) => ({ lat: m.lat, lng: m.lng, color: m.color, title: m.title, texts: m.texts, hasCallout: !!m.calloutPress, actions: m.actions.map((a) => a.label) })) })})`); }, [ready, dataKey]);
+  useEffect(() => { if (!ready) return; run(`window.setData(${JSON.stringify({ lines: data.lines, markers: data.markers.map((m) => ({ lat: m.lat, lng: m.lng, color: m.color, title: m.title, description: m.description, texts: m.texts, hasCallout: !!m.calloutPress, actions: m.actions.map((a) => a.label) })) })})`); }, [ready, dataKey]);
   useEffect(() => { if (ready && props.showsUserLocation) getPosition({ silent: true }).then((p) => p && run(`window.setMe(${p.lat},${p.lng})`)); }, [ready]);
   const onMessage = (e) => {
     let m; try { m = JSON.parse(e.nativeEvent.data); } catch (x) { return; }

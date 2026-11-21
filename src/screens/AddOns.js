@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ScrollView, View, Text, Alert } from 'react-native';
+import { ScrollView, View, Text, Alert, TouchableOpacity } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { Btn, Card, Muted, Chip, H, Loader, Stepper } from '../components/ui';
@@ -9,6 +9,7 @@ import { scheduleProblem, ymd } from '../lib/pricing';
 import { abs, durationOf, hhmm, addDays, freeSlot, mainBlocks, addonClashes, overlapsBase, STAY } from '../lib/schedule';
 import { startPayment } from '../lib/payments';
 import { C } from '../lib/theme';
+import ListingInfoModal from '../components/ListingInfoModal';
 
 // Last step (also reachable from My Trips): stopovers, stays, activities and events.
 // No pickup here: pickup, drop-off and return belong to the main booking only.
@@ -19,6 +20,7 @@ const GROUPS = {
   activities: { label: '🎯 Activities & events', cats: ['activity', 'attraction', 'guide', 'event'] },
 };
 const GAP = 30; // minutes between add-ons
+const PAGE_SIZE = 8;
 
 export default function AddOns({ route, navigation }) {
   const { session, profile, formatMoney } = useAuth();
@@ -32,9 +34,17 @@ export default function AddOns({ route, navigation }) {
   const { blocks: baseBlocks } = mainBlocks(listing, date, endDate, mainTime, t);   // main booking, pickup, return trip
 
   const [group, setGroup] = useState('all'); const [near, setNear] = useState(null); const [chosen, setChosen] = useState({}); const [busy, setBusy] = useState(false);
-  useEffect(() => { setNear(null);
-    supabase.rpc('nearby_listings', { p_lat: listing.lat, p_lng: listing.lng, p_radius_km: 40, p_exclude: listing.category, p_categories: GROUPS[group].cats.filter((c) => c !== listing.category), lim: 15 })
-      .then(({ data }) => setNear(data || [])); }, [group]);
+  const [page, setPage] = useState(0); const [hasMore, setHasMore] = useState(false); const [detailItem, setDetailItem] = useState(null);
+  useEffect(() => { let active = true; setNear(null);
+    supabase.rpc('nearby_listings', { p_lat: listing.lat, p_lng: listing.lng, p_radius_km: 40, p_exclude: listing.category, p_categories: GROUPS[group].cats.filter((c) => c !== listing.category), lim: (page + 1) * PAGE_SIZE + 1 })
+      .then(({ data, error }) => {
+        if (error) throw error;
+        if (!active) return;
+        const all = data || []; const start = page * PAGE_SIZE;
+        setNear(all.slice(start, start + PAGE_SIZE)); setHasMore(all.length > start + PAGE_SIZE);
+      }).catch((error) => { console.warn('Could not load nearby add-ons:', error.message); if (active) { setNear([]); setHasMore(false); } });
+    return () => { active = false; };
+  }, [group, page]);
 
   const blockOf = (c) => { const s = abs(c.date, c.time); return { label: `“${c.l.title}”`, s, e: s + durationOf(c.info || c.l) }; };
 
@@ -116,16 +126,18 @@ export default function AddOns({ route, navigation }) {
 
   return (
     <ScrollView keyboardShouldPersistTaps="handled">
-      <H>Complete your trip</H>
+      <H>Complete your travel</H>
       <Muted style={{ marginHorizontal: 12 }}>Main booking: {listing.title} on {date} at {mainTime}{t ? `, pickup at ${t.pickupTime}` : ''}{t?.returnDate ? `, return ${t.returnDate} at ${t.returnTime}` : ''}. Tick what you want and untick to remove. ℹ️ Add-ons can happen during your main booking (for example, going out while you stay), but not at the same time as each other. Leave {GAP} minutes between add-ons.</Muted>
 
-      <View style={{ flexDirection: 'row', paddingHorizontal: 12, flexWrap: 'wrap' }}>{Object.entries(GROUPS).map(([k, g]) => <Chip key={k} label={g.label} active={group === k} onPress={() => setGroup(k)} />)}</View>
+      <View style={{ flexDirection: 'row', paddingHorizontal: 12, flexWrap: 'wrap' }}>{Object.entries(GROUPS).map(([k, g]) => <Chip key={k} label={g.label} active={group === k} onPress={() => { setGroup(k); setPage(0); }} />)}</View>
       <Muted style={{ marginHorizontal: 12, marginTop: 6 }}>Within 40 km of {listing.title}. Dates from {date} to {lastDay}.</Muted>
       {near === null ? <Loader /> : near.length === 0 ? <Muted style={{ textAlign: 'center', margin: 20 }}>Nothing nearby yet.</Muted> :
         near.map((l) => { const c = chosen[l.id]; return (
-          <Card key={l.id} onPress={() => toggle(l)} style={{ borderWidth: 2, borderColor: c ? C.primary : C.border }}>
-            <Text style={{ fontWeight: '700' }}>{c ? '☑️ ' : '⬜ '}{l.title}</Text>
-            <Muted>{l.category} · {l.distance_km.toFixed(1)} km away · from {l.from_price != null ? formatMoney(l.from_price) : 'On request'}{c ? ' · tap to remove' : ''}</Muted>
+          <Card key={l.id} style={{ padding: 10, borderWidth: 2, borderColor: c ? C.primary : C.border }}>
+            <TouchableOpacity onPress={() => toggle(l)} activeOpacity={0.75}>
+              <Text style={{ fontWeight: '700' }}>{c ? '☑️ ' : '⬜ '}{l.title}</Text>
+              <Muted>{l.category} · {l.distance_km.toFixed(1)} km away · from {l.from_price != null ? formatMoney(l.from_price) : 'On request'}{c ? ' · selected' : ''}</Muted>
+            </TouchableOpacity>
             {c && <>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <DateField style={{ flex: 1, marginRight: 8 }} value={new Date(c.date + 'T12:00:00')} disabled={c.fixed} suffix={c.fixed ? ' (event date)' : ''}
@@ -136,7 +148,16 @@ export default function AddOns({ route, navigation }) {
               <Muted>{formatMoney(lineTotal(c))} for {guests} {guests === 1 ? 'guest' : 'guests'}</Muted>
               {overlapsBase(blockOf(c), baseBlocks) && <Muted style={{ color: C.ok }}>ℹ️ This is during your main booking. That's allowed.</Muted>}
             </>}
+            <View style={{ flexDirection: 'row', marginTop: 6 }}>
+              <Btn style={{ flex: 1, marginHorizontal: 3, marginVertical: 0 }} kind="ghost" title="Details" onPress={() => setDetailItem(l)} />
+              <Btn style={{ flex: 1, marginHorizontal: 3, marginVertical: 0 }} title={c ? 'Remove' : 'Add'} onPress={() => toggle(l)} />
+            </View>
           </Card>); })}
+      {near !== null && (page > 0 || hasMore) && <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 12, marginBottom: 8 }}>
+        <Btn style={{ flex: 1 }} kind="ghost" title="← Previous" disabled={page === 0} onPress={() => setPage((n) => Math.max(0, n - 1))} />
+        <Text style={{ paddingHorizontal: 10, fontWeight: '700' }}>Page {page + 1}</Text>
+        <Btn style={{ flex: 1 }} kind="ghost" title="Next →" disabled={!hasMore} onPress={() => setPage((n) => n + 1)} />
+      </View>}
 
       <View style={{ margin: 12 }}>
         {problems.map((p, i) => <Text key={i} style={{ color: C.danger, fontWeight: '700', marginBottom: 4 }}>⚠️ {p}</Text>)}
@@ -149,6 +170,7 @@ export default function AddOns({ route, navigation }) {
         <Muted style={{ marginTop: 4 }}>If you leave this screen without choosing, nothing is saved.</Muted>
       </View>
       <View style={{ height: 30 }} />
+      <ListingInfoModal listing={detailItem} onClose={() => setDetailItem(null)} formatMoney={formatMoney} />
     </ScrollView>
   );
 }

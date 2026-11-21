@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Polyline } from './SafeMap';
 import { getRoute, haversineKm } from '../lib/geo';
 import { C } from '../lib/theme';
 
 // Map with the real road route (every bend) from pickup to destination. The distance is calculated here, never typed in.
-export default function RoutePreview({ from, to, onKm, height = 190 }) {
+export default function RoutePreview({ from, to, fromLabel = 'Pickup', toLabel = 'Destination', onKm, height = 190 }) {
   const ref = useRef(); const [info, setInfo] = useState(null); const [steps, setSteps] = useState(false);
   useEffect(() => {
     if (!from || !to) { setInfo(null); return; }
@@ -27,8 +28,16 @@ export default function RoutePreview({ from, to, onKm, height = 190 }) {
     <View style={{ marginVertical: 8 }}>
       <View style={{ height, borderRadius: 14, overflow: 'hidden' }}>
         <MapView ref={ref} style={{ flex: 1 }} initialRegion={{ latitude: from.lat, longitude: from.lng, latitudeDelta: 0.3, longitudeDelta: 0.3 }}>
-          <Marker coordinate={{ latitude: from.lat, longitude: from.lng }} title="Pickup" pinColor="green" />
-          <Marker coordinate={{ latitude: to.lat, longitude: to.lng }} title="Destination" />
+          <Marker coordinate={{ latitude: from.lat, longitude: from.lng }} title={fromLabel} description="Pickup" pinColor="green">
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 7, paddingVertical: 4, borderWidth: 1, borderColor: C.primary, elevation: 3, maxWidth: 180 }}>
+              <Ionicons name="navigate" size={13} color={C.primary} /><Text numberOfLines={1} style={{ maxWidth: 145, marginLeft: 4, color: C.text, fontSize: 10, fontWeight: '700' }}>{fromLabel}</Text>
+            </View>
+          </Marker>
+          <Marker coordinate={{ latitude: to.lat, longitude: to.lng }} title={toLabel} description="Drop-off" pinColor="red">
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 7, paddingVertical: 4, borderWidth: 1, borderColor: C.primary, elevation: 3, maxWidth: 180 }}>
+              <Ionicons name="navigate" size={13} color={C.primary} /><Text numberOfLines={1} style={{ maxWidth: 145, marginLeft: 4, color: C.text, fontSize: 10, fontWeight: '700' }}>{toLabel}</Text>
+            </View>
+          </Marker>
           {info && <Polyline coordinates={info.coords} strokeWidth={5} strokeColor={C.primary} />}
         </MapView>
       </View>

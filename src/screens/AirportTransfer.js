@@ -29,15 +29,29 @@ export default function AirportTransfer({ navigation }) {
 
   useEffect(() => { if (!contactPhone && profile?.phone) setContactPhone(profile.phone); }, [profile?.phone]);
   useEffect(() => {
-    supabase.from('airports').select('*').eq('active', true).order('country').order('city').order('name').then(({ data }) => setAirports(data || []));
-    supabase.from('vehicles').select('*').eq('active', true).order('max_passengers').then(({ data }) => setVehicles(data || []));
-    supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle().then(({ data }) => data?.country && setCountry((c) => c || data.country));
+    let active = true;
+    supabase.from('airports').select('*').eq('active', true).order('country').order('city').order('name')
+      .then(({ data, error }) => { if (error) console.warn('Could not load airports:', error.message); else if (active) setAirports(data || []); });
+    supabase.from('vehicles').select('*').eq('active', true).order('max_passengers')
+      .then(({ data, error }) => { if (error) console.warn('Could not load transfer vehicles:', error.message); else if (active) setVehicles(data || []); });
+    (async () => {
+      const { data, error } = await supabase.from('profiles').select('country').eq('id', session.user.id).maybeSingle();
+      if (error) { console.warn('Could not load the traveler country:', error.message); return; }
+      if (!active) return;
+      if (data?.country) { setCountry(data.country); return; }
+      const position = await getPosition({ silent: true });
+      if (!position || !active) return;
+      const info = await reverseInfo(position.lat, position.lng);
+      if (info.country && active) setCountry(info.country);
+    })();
+    return () => { active = false; };
   }, []);
 
   const countries = useMemo(() => [...new Set(airports.map((a) => a.country))], [airports]);
+  useEffect(() => { if (!country && countries.length === 1) setCountry(countries[0]); }, [country, countries]);
   const filteredAirports = useMemo(() => {
     const s = q.trim().toLowerCase(); const g = {};
-    return airports.filter((a) => (!country || a.country === country) && (!s || `${a.name} ${a.code || ''} ${a.city || ''}`.toLowerCase().includes(s)));
+    return airports.filter((a) => country && a.country === country && (!s || `${a.name} ${a.code || ''} ${a.city || ''}`.toLowerCase().includes(s)));
   }, [airports, country, q]);
   const totalPages = Math.max(1, Math.ceil(filteredAirports.length / AIRPORT_PAGE_SIZE));
   const grouped = useMemo(() => {
@@ -89,8 +103,8 @@ export default function AirportTransfer({ navigation }) {
       <View style={{ padding: 12 }}>
         <H n={1} t={dir === 'from' ? 'Pickup airport' : 'Drop-off airport'} />
         {countries.length > 1 && <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <Chip label="All countries" active={!country} onPress={() => setCountry('')} />
           {countries.map((c) => <Chip key={c} label={c} active={country === c} onPress={() => setCountry(c)} />)}</ScrollView>}
+        {!country && countries.length > 1 && <Muted>Select your country to see airports near you.</Muted>}
         <Input placeholder="Search airport, code or city" value={q} onChangeText={(value) => { setPage(0); setQ(value); }} />
         {filteredAirports.length > 0 && <Muted>{filteredAirports.length} airports · page {page + 1} of {totalPages}</Muted>}
         {grouped.map(([k, list]) => { const [ctry, city] = k.split('|'); return (
@@ -101,7 +115,7 @@ export default function AirportTransfer({ navigation }) {
                 <Text style={{ fontWeight: '700' }}>{a.code ? `${a.code} · ` : ''}{a.name}</Text>{a.region ? <Muted>{a.region}</Muted> : null}</Card>))}
           </View>); })}
         {airports.length === 0 && <Muted>No airports yet. The admin adds them in Admin → Airports.</Muted>}
-        {airports.length > 0 && filteredAirports.length === 0 && <Muted>No airport matches your search.</Muted>}
+        {country && airports.length > 0 && filteredAirports.length === 0 && <Muted>No airport matches your search in {country}.</Muted>}
         {filteredAirports.length > AIRPORT_PAGE_SIZE && <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 8 }}>
           <Btn style={{ flex: 1 }} kind="ghost" title="← Previous" disabled={page === 0} onPress={() => setPage((n) => Math.max(0, n - 1))} />
           <Text style={{ paddingHorizontal: 10, fontWeight: '700' }}>{page + 1}/{totalPages}</Text>
@@ -124,7 +138,10 @@ export default function AirportTransfer({ navigation }) {
         <H n={4} t="Contact phone number" />
         <PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} />
 
-        <RoutePreview from={from} to={to} onKm={setKm} />
+        <RoutePreview from={from} to={to}
+          fromLabel={dir === 'from' ? airport?.name || 'Airport' : place?.label || 'Pickup place'}
+          toLabel={dir === 'from' ? place?.label || 'Drop-off place' : airport?.name || 'Airport'}
+          onKm={setKm} />
 
         <H n={5} t="Passengers" />
         <Stepper label="Adults" value={adults} onChange={setAdults} min={1} max={100} />

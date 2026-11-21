@@ -87,7 +87,7 @@ export default function BookingScreen({ route, navigation }) {
   // pickup / drop-off / return: main booking only. It is the last section, unticked and closed
   // (guides need a meeting point, and a pickup chosen earlier opens it).
   const needsMeeting = true; const mustMeet = listing.category === 'guide';
-  const [transfer, setTransfer] = useState(mustMeet || !!pre?.loc); const [open, setOpen] = useState(mustMeet || !!pre?.loc);
+  const [transfer, setTransfer] = useState(mustMeet || !!pre?.loc); const [open, setOpen] = useState(!!pre?.loc);
   const [tripType, setTripType] = useState('oneway');
   const [pickupLoc, setPickupLoc] = useState(pre?.loc || null); const [pickupTime, setPickupTime] = useState(pre?.time || null);
   const [sameDrop, setSameDrop] = useState(true); const [dropLoc, setDropLoc] = useState(null);
@@ -278,8 +278,8 @@ export default function BookingScreen({ route, navigation }) {
           {needsMeeting && (
             <Section
               icon="car-outline"
-              title={mustMeet ? 'Pickup and return (required)' : 'Pickup and return'}
-              hint={transfer ? 'For the main booking only, not for add-ons.' : `Switch on if you need a pickup to ${listing.title}.`}
+              title={mustMeet ? 'Pickup and drop-off (required)' : 'Pickup and drop-off'}
+              hint={transfer ? 'Choose pickup only or pickup with a return drop-off.' : 'Optional. Turn on to choose a pickup or drop-off.'}
               style={transfer ? { borderColor: C.primary, borderWidth: 1.5 } : null}
               right={<Switch value={transfer} disabled={mustMeet} onValueChange={(on) => { setTransfer(on); setOpen(on); }} trackColor={{ true: C.primary }} />}
             >
@@ -293,7 +293,7 @@ export default function BookingScreen({ route, navigation }) {
                 </TouchableOpacity>
               )}
               {transfer && open && <>
-                <Seg value={tripType} onChange={setTripType} options={[['oneway', 'Pickup only'], ['return', 'Pickup and return']]} />
+                <Seg value={tripType} onChange={setTripType} options={[['oneway', 'Pickup only'], ['return', 'Pickup + drop-off']]} />
                 <Row label="Pickup place"><LocBtns set={setPickupLoc} title="Choose your pickup location" loc={pickupLoc} /></Row>
                 <Row label="Pickup time"><PickupTimeField times={listing.pickup_times} value={pickupTime} onChange={setPickupTime} /></Row>
                 <View style={{ marginTop: 10 }}><RoutePreview from={pickupLoc} to={{ lat: listing.lat, lng: listing.lng }} onKm={setKm} /></View>
