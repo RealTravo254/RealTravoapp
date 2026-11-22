@@ -8,7 +8,7 @@ import { useAuth } from '../lib/AuthContext';
 import ScreenHeader from '../components/ScreenHeader';
 import { Btn, Muted, Pager, Loader } from '../components/ui';
 import DateField from '../components/DateField';
-import { startPayment } from '../lib/payments';
+import { choosePayment } from '../lib/payments';
 import { ymd } from '../lib/pricing';
 import { tr } from '../i18n';
 import { C } from '../lib/theme';
@@ -54,7 +54,10 @@ const InfoLine = ({ icon, children }) => (
 
 function TripRow({ b, navigation, onPay, onCancel, feePct, formatMoney }) {
   const [open, setOpen] = useState(false);               // pickup and return stays closed until tapped
-  const st = statusStyle(b.status); const a = dayParts(b.start_date);
+  const st = b.no_show_resolution === 'pending'
+    ? { label: 'No-show under review', color: '#B45309', bg: '#FEF3E2' }
+    : statusStyle(b.status);
+  const a = dayParts(b.start_date);
   const e = !same(b.start_date, b.end_date) ? dayParts(b.end_date) : null;
   const unpaid = b.payment_status === 'unpaid' && b.status === 'pending';
   const paid = b.payment_status === 'paid';
@@ -96,6 +99,11 @@ function TripRow({ b, navigation, onPay, onCancel, feePct, formatMoney }) {
           {!!b.parent_booking_id && <Tag text="Add-on" color="#4A5A52" bg="#EEF2EF" />}
           {!!b.urgent && <Tag icon="flash" text="Urgent" color="#B42318" bg="#FDECEA" />}
         </View>
+        {b.no_show_resolution === 'pending' && (
+          <Muted style={{ marginTop: 6 }}>
+            Admin will contact you before deciding whether to refund your balance or release the booking earnings to the host.
+          </Muted>
+        )}
 
         {gone && custom && (Number(b.cancel_fee) > 0 || Number(b.refund_due) > 0) && (
           <Text style={s.cancelInfo}>Cancellation fee {formatMoney(b.cancel_fee)}{Number(b.refund_due) > 0 ? ` · refund due ${formatMoney(b.refund_due)}` : ''}</Text>)}
@@ -137,7 +145,7 @@ function TripRow({ b, navigation, onPay, onCancel, feePct, formatMoney }) {
 }
 
 export default function MyTrips({ navigation, route }) {
-  const { session, profile, refresh, formatMoney } = useAuth();
+  const { session, refresh, formatMoney } = useAuth();
   const [tab, setTab] = useState(route?.params?.tab || 'upcoming');
   const [when, setWhen] = useState('all');
   const [from, setFrom] = useState(() => { const d = new Date(); d.setDate(1); return d; });
@@ -210,7 +218,7 @@ export default function MyTrips({ navigation, route }) {
   }, [page, session, tab, when, from, to]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const pay = async (b) => { try { const p = await startPayment(b.package_id ? { purpose: 'package', packageId: b.package_id } : { purpose: 'booking', bookingId: b.id }); navigation.navigate('Pay', { url: p.authorization_url }); } catch (e) { Alert.alert('Error', e.message); } };
+  const pay = async (b) => { try { choosePayment(navigation, b.package_id ? { purpose: 'package', packageId: b.package_id } : { purpose: 'booking', bookingId: b.id }); } catch (e) { Alert.alert('Error', e.message); } };
 
   const cancelItem = (b, fee) => {
     const paid = b.payment_status === 'paid';
@@ -281,7 +289,7 @@ export default function MyTrips({ navigation, route }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#F6F8F7' }}>
-      <ScreenHeader title="My trips" icon="ticket-outline" subtitle={`${tr('balance')}: ${formatMoney(profile?.balance)}`} />
+      <ScreenHeader title="My trips" icon="ticket-outline" />
       {offline && (
         <View style={s.offline}>
           <Ionicons name="cloud-offline-outline" size={16} color="#8A5A0B" />

@@ -10,7 +10,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { Btn, Muted, Loader } from '../components/ui';
-import { startPayment } from '../lib/payments';
+import { choosePayment } from '../lib/payments';
 import { tr } from '../i18n';
 import { C } from '../lib/theme';
 
@@ -107,7 +107,9 @@ export default function BookingDetail({ route, navigation }) {
   if (!d) return <Muted style={{ margin: 24 }}>{err || 'This booking is not available.'}</Muted>;
 
   const { b, kids, pkg, veh } = d;
-  const st = statusStyle(b.status);
+  const st = b.no_show_resolution === 'pending'
+    ? { label: 'No-show under review', color: '#B45309', bg: '#FEF3E2' }
+    : statusStyle(b.status);
   const L = b.listings || {};
   const items = [].concat(b.booking_items || []);
   const drop = [].concat(b.booking_dropoffs || [])[0];
@@ -125,7 +127,7 @@ export default function BookingDetail({ route, navigation }) {
   const openListing = (lid) => navigation.navigate('ListingDetail', { id: lid });
   const pay = async () => {
     setBusy(true);
-    try { const p = await startPayment(b.package_id ? { purpose: 'package', packageId: b.package_id } : { purpose: 'booking', bookingId: b.id }); navigation.navigate('Pay', { url: p.authorization_url }); }
+    try { choosePayment(navigation, b.package_id ? { purpose: 'package', packageId: b.package_id } : { purpose: 'booking', bookingId: b.id }); }
     catch (e) { Alert.alert('Error', e.message); } finally { setBusy(false); }
   };
   const answerCancel = async (ok) => { const { error } = await supabase.rpc('respond_cancel_request', { p_booking: b.id, p_accept: ok }); if (error) Alert.alert('Error', error.message); load(); };
@@ -166,6 +168,7 @@ export default function BookingDetail({ route, navigation }) {
       {b.status === 'pending' && paid && !!b.respond_by && <Text style={s.notice}>The host must respond by {new Date(b.respond_by).toLocaleString()}</Text>}
       {unpaid && !!b.pay_by && <Text style={s.notice}>⏳ Pay before {new Date(b.pay_by).toLocaleString()} or it is cancelled</Text>}
       {b.status === 'declined' && !!b.decline_reason && <Text style={s.notice}>Reason: {b.decline_reason}</Text>}
+      {b.no_show_resolution === 'pending' && <Text style={s.notice}>Your host reported a no-show. Admin will contact you before deciding whether to refund your balance or release the booking earnings to the host.</Text>}
       {!!b.cancel_requested && (
         <View style={[s.card, { borderColor: '#D64545' }]}>
           <Text style={{ color: '#D64545', fontWeight: '700' }}>The host asked to cancel: {b.cancel_reason}</Text>

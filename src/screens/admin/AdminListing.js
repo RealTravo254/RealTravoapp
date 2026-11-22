@@ -7,6 +7,7 @@ import Img from '../../components/Img';
 import MapView, { Marker } from '../../components/SafeMap';
 import { DAYS, DAY_NAMES } from '../../lib/categories';
 import { C } from '../../lib/theme';
+import { canManageAdminPage, canViewAdminPage, fetchAdminAccess } from './adminAccess';
 
 // Admin review: EVERYTHING about one listing (any category) before approving, rejecting or hiding it.
 const Row = ({ k, v }) => (v == null || v === '' || (Array.isArray(v) && !v.length)) ? null : (
@@ -17,8 +18,13 @@ const SCHED = { always: 'Ongoing (no end date)', range: 'Activity with an end da
 export default function AdminListing({ route, navigation }) {
   const { formatMoney } = useAuth();
   const { id } = route.params; const [d, setD] = useState(null); const [note, setNote] = useState('');
-  useEffect(() => { (async () => {
+  const [access, setAccess] = useState(null); const [denied, setDenied] = useState(false);
+  useEffect(() => { fetchAdminAccess().then((current) => {
+    setAccess(current);
+    if (!canViewAdminPage(current, 'listings')) { setDenied(true); return; }
+    return (async () => {
     const { data: l } = await supabase.from('listings').select('*, providers(*)').eq('id', id).single();
+    if (!l) throw new Error('Listing not found or access denied.');
     const [{ data: prices }, { data: contact }, { data: owner }, { data: ver }] = await Promise.all([
       supabase.from('listing_prices').select('*').eq('listing_id', id).order('kind'),
       supabase.from('listing_contacts').select('*').eq('listing_id', id).maybeSingle(),
@@ -26,8 +32,11 @@ export default function AdminListing({ route, navigation }) {
       supabase.from('host_verifications').select('status,legal_name,document_type,city').eq('user_id', l.owner_id).maybeSingle()]);
     setD({ l, prices: prices || [], contact, owner, ver }); setNote(l.admin_note || '');
     navigation.setOptions({ title: l.title });
-  })(); }, [id]);
-  if (!d) return <Loader />;
+    })();
+  }).catch((error) => { setDenied(true); Alert.alert('Could not open listing', error.message); }); }, [id]);
+  if (denied) return <View style={{ padding: 20 }}><Muted>You do not have permission to review listings.</Muted></View>;
+  if (!d || !access) return <Loader />;
+  const canManage = canManageAdminPage(access, 'listings');
   const { l, prices, contact, owner, ver } = d; const p = l.providers || {};
   const openDoc = async (bucket, path) => { const { data } = await supabase.storage.from(bucket).createSignedUrl(path, 600); if (data) Linking.openURL(data.signedUrl); else Alert.alert('File not found'); };
   const setStatus = async (status) => {
@@ -78,14 +87,14 @@ export default function AdminListing({ route, navigation }) {
           </View>))}
       </Block>
       <Block title="Contact shown after booking"><Row k="Email" v={contact?.email} /><Row k="Phone" v={contact?.phone} /><Row k="WhatsApp" v={contact?.whatsapp} />{!contact && <Muted>No contact added</Muted>}</Block>
-      <Card>
+      {canManage && <Card>
         <Label>Note to the host (required when rejecting)</Label><Input multiline value={note} onChangeText={setNote} placeholder="What should the host fix?" />
         <View style={{ flexDirection: 'row' }}>
           <Btn style={{ flex: 1, margin: 2 }} title="Approve" onPress={() => setStatus('approved')} />
           <Btn style={{ flex: 1, margin: 2 }} kind="danger" title="Reject / send back" onPress={() => setStatus('rejected')} />
         </View>
         {l.status === 'approved' && <Btn kind="ghost" title="Hide from guests" onPress={() => setStatus('hidden')} />}
-      </Card>
+      </Card>}
     </ScrollView>
   );
 }

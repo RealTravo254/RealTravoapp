@@ -15,7 +15,7 @@ import { pickLocation } from '../lib/pickBus';
 import { getPosition, matchRegion, reverseInfo } from '../lib/geo';
 import { ymd, scheduleProblem, transferPrice } from '../lib/pricing';
 import { addDays } from '../lib/schedule';
-import { startPayment } from '../lib/payments';
+import { choosePayment } from '../lib/payments';
 import { isValidContactPhone } from '../lib/phone';
 import { C } from '../lib/theme';
 
@@ -392,8 +392,7 @@ export default function CustomTrip({ navigation }) {
           if (bi.error) throw bi.error;
         }
       }
-      const p = await startPayment({ purpose: 'package', packageId: pkgId });
-      navigation.replace('Pay', { url: p.authorization_url });
+      choosePayment(navigation, { purpose: 'package', packageId: pkgId });
     } catch (e) {
       if (pkgId) { await supabase.from('bookings').delete().eq('package_id', pkgId); await supabase.from('trip_packages').delete().eq('id', pkgId); }
       Alert.alert('Could not book', e.message);

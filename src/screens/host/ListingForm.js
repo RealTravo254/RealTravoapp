@@ -9,6 +9,7 @@ import { pickLocation } from '../../lib/pickBus';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/AuthContext';
 import { pickAndUploadPhotos } from '../../lib/uploadMany';
+import { pickAndUploadListingVideo } from '../../lib/uploadVideo';
 import { C } from '../../lib/theme';
 import { Btn, Card, Input, Label, Chip, Muted } from '../../components/ui';
 import CountryPicker from '../../components/CountryPicker';
@@ -20,7 +21,8 @@ const AUD = ['adult', 'child', 'foreigner', 'resident', 'group', 'vip', 'vvip', 
 const KINDS = ['entrance', 'facility', 'activity', 'ticket', 'room', 'guide'];
 const UNITS = ['per_person', 'per_group', 'per_night', 'per_day'];
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
-const MAX_PHOTOS = 12;
+const MAX_PHOTOS = 6;
+const MAX_EXTRA_PHOTOS = 4;
 
 // Remove rows that share the same id, so React never sees two children with the same key.
 const uniqById = (arr) => { const seen = new Set(); return (arr || []).filter((r) => r && !seen.has(r.id) && seen.add(r.id)); };
@@ -47,7 +49,7 @@ const MAIN_TXT = {
 };
 const UNIT_FOR = { room: 'per_night', guide: 'per_day' };
 
-const blank = (kind, price = '0') => ({ kind, label: '', audience: 'adult', unit: UNIT_FOR[kind] || 'per_person', price, is_optional: kind === 'facility' || kind === 'activity', description: '', photo_url: null });
+const blank = (kind, price = '0') => ({ kind, label: '', audience: 'adult', unit: UNIT_FOR[kind] || 'per_person', price, is_optional: kind === 'facility' || kind === 'activity', description: '', photo_url: null, photo_urls: [] });
 
 const hoursFrom = (l) => Object.fromEntries(DAYS.map((d) => [d, l?.opening_hours?.[d] ?? (l ? (l.open_days?.includes(d) ? { open: l.open_time?.slice(0, 5) || '08:00', close: l.close_time?.slice(0, 5) || '18:00' } : { closed: true }) : { open: '08:00', close: '18:00' })]));
 
@@ -80,7 +82,7 @@ export default function ListingForm({ route, navigation }) {
       ? (listing.accommodation_available ?? ['hotel', 'resort', 'campsite', 'airbnb'].includes(listing.category))
       : ['hotel', 'resort', 'campsite', 'airbnb'].includes(allOpts[0] || 'hotel'),
     amenities: old.filter((a) => AMENITIES.includes(a)), other: old.filter((a) => !AMENITIES.includes(a)).join(', '),
-    photos: [...new Set(listing?.photos || [])], event_date: listing?.event_date, schedule_type: listing?.schedule_type || 'always', starts_on: listing?.starts_on || '', ends_on: listing?.ends_on || '',
+    photos: [...new Set(listing?.photos || [])].slice(0, MAX_PHOTOS), event_date: listing?.event_date, schedule_type: listing?.schedule_type || 'always', starts_on: listing?.starts_on || '', ends_on: listing?.ends_on || '',
     tour_time: listing?.open_time ? listing.open_time.slice(0, 5) : '08:00', one_date: listing?.event_date ? ymd(new Date(listing.event_date)) : '',
     one_time: listing?.event_date ? `${String(new Date(listing.event_date).getHours()).padStart(2, '0')}:${String(new Date(listing.event_date).getMinutes()).padStart(2, '0')}` : '18:00', daily_limit: listing?.daily_limit ? String(listing.daily_limit) : '', pickup_times: listing?.pickup_times || [] });
 
@@ -97,6 +99,7 @@ export default function ListingForm({ route, navigation }) {
   const [regions, setRegions] = useState([]); const [sameWa, setSameWa] = useState(true);
   const [busy, setBusy] = useState(null); // text while general photos are picking/uploading
   const [rowBusy, setRowBusy] = useState(null); // index of the price row whose photo is uploading
+  const [videoUrl, setVideoUrl] = useState(listing?.video_url || null);
   const set = (k) => (v) => setF((x) => ({ ...x, [k]: v }));
   const setCategory = (category) => setF((x) => ({ ...x, category, accommodation_available: ['hotel', 'resort', 'campsite', 'airbnb'].includes(category) }));
 
@@ -106,7 +109,13 @@ export default function ListingForm({ route, navigation }) {
 
   useEffect(() => { if (!f.country) return setRegions([]); supabase.from('country_divisions').select('name, countries!inner(name)').eq('countries.name', f.country).eq('active', true).order('name').then(({ data }) => setRegions([...new Set((data || []).map((r) => r.name))])); }, [f.country]);
   useEffect(() => { if (!listing) return;
-    supabase.from('listing_prices').select('*').eq('listing_id', listing.id).then(({ data }) => { setPrices(uniqById(data)); setPricesLoaded(true); });
+    supabase.from('listing_prices').select('*').eq('listing_id', listing.id).then(({ data }) => {
+      setPrices(uniqById(data).map((price) => ({
+        ...price,
+        photo_urls: price.photo_urls?.length ? price.photo_urls.slice(0, MAX_EXTRA_PHOTOS) : (price.photo_url ? [price.photo_url] : []),
+      })));
+      setPricesLoaded(true);
+    });
     supabase.from('listing_contacts').select('*').eq('listing_id', listing.id).maybeSingle().then(({ data }) => data && setContact(data)); }, []);
 
   // always keep one (empty) main price row ready so the host has to fill in the entrance / room / guide price
@@ -138,7 +147,9 @@ export default function ListingForm({ route, navigation }) {
     const used = p.filter((x) => x.kind === mainKind).map((x) => x.audience);
     return [...p, { ...blank(mainKind, ''), audience: AUD.find((a) => !used.includes(a)) || 'adult' }];
   });
-  const updPrice = (i, k, v) => setPrices((p) => p.map((x, j) => (j === i ? { ...x, [k]: v, seed: false } : x)));
+  const updPrice = (i, k, v) => setPrices((p) => p.map((x, j) => (j === i
+    ? { ...x, [k]: v, ...(k === 'photo_urls' ? { photo_url: v[0] || null } : {}), seed: false }
+    : x)));
   const cycle = (arr, cur) => arr[(arr.indexOf(cur) + 1) % arr.length];
   const needsDetails = (k) => k === 'facility' || k === 'activity';
 
@@ -151,18 +162,32 @@ export default function ListingForm({ route, navigation }) {
     try {
       const urls = await pickAndUploadPhotos(session.user.id, {
         limit: room,
-        onStart: (n) => setBusy(`Uploading 0 of ${n}…`),
-        onProgress: (d, n) => setBusy(`Uploading ${d} of ${n}…`),
+        onStart: (n) => setBusy(`Processing and uploading 0 of ${n}…`),
+        onProgress: (d, n) => setBusy(`Processing and uploading ${d} of ${n}…`),
       });
       // the same photo can never be added twice
       if (urls.length) setF((x) => ({ ...x, photos: [...new Set([...x.photos, ...urls])].slice(0, MAX_PHOTOS) }));
     } catch (e) { Alert.alert('Upload failed', e.message); } finally { setBusy(null); }
   };
-  const addRowPhoto = async (i) => {
+  const addRowPhotos = async (i) => {
     if (rowBusy !== null) return;
+    const current = prices[i]?.photo_urls || (prices[i]?.photo_url ? [prices[i].photo_url] : []);
+    const room = MAX_EXTRA_PHOTOS - current.length;
+    if (room <= 0) return Alert.alert('Photos', `Each facility or activity can have up to ${MAX_EXTRA_PHOTOS} photos.`);
     setRowBusy(i);
-    try { const [u] = await pickAndUploadPhotos(session.user.id, { limit: 1 }); if (u) updPrice(i, 'photo_url', u); }
+    try {
+      const urls = await pickAndUploadPhotos(session.user.id, { limit: room });
+      if (urls.length) updPrice(i, 'photo_urls', [...new Set([...current, ...urls])].slice(0, MAX_EXTRA_PHOTOS));
+    }
     catch (e) { Alert.alert('Upload failed', e.message); } finally { setRowBusy(null); }
+  };
+  const addVideo = async () => {
+    if (busy) return;
+    setBusy('Opening your video library…');
+    try {
+      const url = await pickAndUploadListingVideo(session.user.id, setBusy);
+      if (url) setVideoUrl(url);
+    } catch (e) { Alert.alert('Video upload failed', e.message); } finally { setBusy(null); }
   };
 
   const save = async () => {
@@ -176,7 +201,7 @@ export default function ListingForm({ route, navigation }) {
       return Alert.alert('Accommodation availability', 'Enter the maximum number of guests you can host per day so booked dates can be filtered.');
     for (const d of DAYS) { const h = f.hours[d]; if (!h.closed && (!TIME.test(h.open || '') || !TIME.test(h.close || '') || h.close <= h.open)) return Alert.alert('Opening hours', `${DAY_NAMES[d]}: use HH:MM (24h) and closing after opening, or mark it closed.`); }
     const openDays = DAYS.filter((d) => !f.hours[d].closed); if (!openDays.length) return Alert.alert('Opening hours', 'Open at least one day.');
-    for (const p of prices) if (needsDetails(p.kind) && (!p.label || !p.description || !p.photo_url)) return Alert.alert('Facilities & activities', 'Every facility and activity needs a name, a description and one photo.');
+    for (const p of prices) if (needsDetails(p.kind) && (!p.label || !p.description || !(p.photo_urls?.length || p.photo_url))) return Alert.alert('Facilities & activities', 'Every facility and activity needs a name, a description and at least one photo.');
     const first = f.hours[openDays[0]];
     const amenities = [...f.amenities, ...f.other.split(',').map((s) => s.trim()).filter(Boolean)];
     if (sched === 'range' || sched === 'tour') {
@@ -188,14 +213,21 @@ export default function ListingForm({ route, navigation }) {
     let eventIso = null;
     if (sched === 'one_time') { if (!f.one_date) return Alert.alert('Date', 'Choose the date.'); const at = new Date(`${f.one_date}T${f.one_time}:00`); if (at.getTime() < Date.now()) return Alert.alert('Date', 'Choose a date and time in the future.'); eventIso = at.toISOString(); }
     const row = { provider_id: providerId, owner_id: session.user.id, city: provider?.city || listing?.city || null, category: f.category, title: f.title, description: f.description, country: f.country, region: f.region, location_name: f.location_name, lat: f.lat, lng: f.lng, google_place_id: f.google_place_id,
-      opening_hours: f.hours, open_days: openDays, open_time: sched === 'tour' ? f.tour_time : first.open, close_time: first.close, entrance_fee_free: isFree, accommodation_available: f.accommodation_available, facilities: amenities, photos: f.photos, event_date: eventIso, schedule_type: sched, starts_on: (sched === 'range' || sched === 'tour') ? f.starts_on : null, ends_on: (sched === 'range' || sched === 'tour') ? f.ends_on : null,
+      opening_hours: f.hours, open_days: openDays, open_time: sched === 'tour' ? f.tour_time : first.open, close_time: first.close, entrance_fee_free: isFree, accommodation_available: f.accommodation_available, facilities: amenities, photos: f.photos, video_url: videoUrl, event_date: eventIso, schedule_type: sched, starts_on: (sched === 'range' || sched === 'tour') ? f.starts_on : null, ends_on: (sched === 'range' || sched === 'tour') ? f.ends_on : null,
       daily_limit: f.daily_limit ? Number(f.daily_limit) : null, pickup_times: ['guide', 'activity'].includes(f.category) ? f.pickup_times : [], status: ['approved', 'hidden'].includes(listing?.status) ? listing.status : 'pending', admin_note: null };
     const q = listing ? supabase.from('listings').update(row).eq('id', listing.id).select().single() : supabase.from('listings').insert(row).select().single();
     const { data, error } = await q; if (error) return Alert.alert('Cannot save', /one_listing_per_provider|one_main_listing/.test(error.message) ? `You can list only one ${CAT_LABEL[f.category].toLowerCase()}.` : error.message);
     if (listing) await supabase.from('listing_prices').delete().eq('listing_id', data.id);
     const toSave = prices.filter((p) => !(isFree && p.kind === mainKind));
-    if (toSave.length) await supabase.from('listing_prices').insert(toSave.map((p) => ({ listing_id: data.id, kind: p.kind, label: p.label || p.kind, audience: p.audience, unit: p.unit, price: Number(p.price) || 0, is_optional: p.is_optional,
-      description: needsDetails(p.kind) ? p.description : null, photo_url: needsDetails(p.kind) ? p.photo_url : null })));
+    if (toSave.length) {
+      const { error: pricesError } = await supabase.from('listing_prices').insert(toSave.map((p) => ({
+        listing_id: data.id, kind: p.kind, label: p.label || p.kind, audience: p.audience, unit: p.unit, price: Number(p.price) || 0, is_optional: p.is_optional,
+        description: needsDetails(p.kind) ? p.description : null,
+        photo_url: needsDetails(p.kind) ? (p.photo_urls?.[0] || p.photo_url || null) : null,
+        photo_urls: needsDetails(p.kind) ? (p.photo_urls?.length ? p.photo_urls.slice(0, MAX_EXTRA_PHOTOS) : (p.photo_url ? [p.photo_url] : [])) : [],
+      })));
+      if (pricesError) return Alert.alert('Cannot save prices', pricesError.message);
+    }
     await supabase.from('listing_contacts').upsert({ listing_id: data.id, ...contact, whatsapp: sameWa ? contact.phone : contact.whatsapp });
     Alert.alert(listing?.status === 'approved' ? 'Saved' : 'Submitted', listing?.status === 'approved' ? 'Your changes are live.' : 'Admin will verify this listing before it goes live.'); navigation.goBack();
   };
@@ -320,21 +352,29 @@ export default function ListingForm({ route, navigation }) {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 6 }}>
         {f.photos.map((u, idx) => (
           <View key={`${u}-${idx}`} style={{ marginRight: 8 }}>
-            <Image source={{ uri: u }} style={{ width: 96, height: 96, borderRadius: 12 }} />
+            <Image source={{ uri: u }} style={{ width: 132, height: 88, borderRadius: 12 }} />
             {idx === 0 && <View style={{ position: 'absolute', left: 6, bottom: 6, backgroundColor: C.ink, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}><Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>Cover</Text></View>}
             <TouchableOpacity onPress={() => set('photos')(f.photos.filter((_, j) => j !== idx))} style={{ position: 'absolute', right: 4, top: 4, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(16,34,46,0.8)', alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>✕</Text>
             </TouchableOpacity>
           </View>
         ))}
-        {busy && <View style={{ width: 96, height: 96, borderRadius: 12, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={C.primary} /></View>}
+        {busy && <View style={{ width: 132, height: 88, borderRadius: 12, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={C.primary} /></View>}
       </ScrollView>
       {busy && <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.primarySoft, borderRadius: 12, padding: 10, marginBottom: 6 }}><ActivityIndicator color={C.primary} /><Text style={{ marginLeft: 10, color: C.primary, fontWeight: '700' }}>{busy}</Text></View>}
-      <Btn kind="ghost" title={busy ? 'Please wait…' : '＋ Add photos'} onPress={addPhotos} />
+      <Btn kind="ghost" disabled={!!busy} title={busy ? 'Please wait…' : '＋ Add photos'} onPress={addPhotos} />
+
+      <Label>Place video (optional)</Label>
+      <Muted>Upload one video up to 30 seconds. Videos are not used for facilities or activities.</Muted>
+      {videoUrl && <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.primarySoft, borderRadius: 10, padding: 10 }}>
+        <Text style={{ flex: 1, color: C.primary, fontWeight: '700' }}>Video uploaded</Text>
+        <Btn kind="danger" title="Remove" onPress={() => setVideoUrl(null)} />
+      </View>}
+      <Btn kind="ghost" disabled={!!busy} title={busy ? 'Please wait…' : videoUrl ? 'Change video' : '＋ Add video'} onPress={addVideo} />
 
       {/* ---------- other prices, facilities, activities ---------- */}
       <Label>Facilities, activities and extra prices</Label>
-      <Muted>Facilities and activities also need a description and one photo.</Muted>
+      <Muted>Facilities and activities need a description and 1–4 photos each.</Muted>
       {extraRows.map(({ p, i }) => (
         <Card key={i} style={{ marginHorizontal: 0 }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
@@ -343,10 +383,27 @@ export default function ListingForm({ route, navigation }) {
           <Input placeholder={needsDetails(p.kind) ? 'Name (e.g. Boat ride, Spa, Game drive)' : p.kind === 'room' ? 'Accommodation name (e.g. lodge, family room, tent)' : 'Label (e.g. Parking, Camera pass)'} value={p.label} onChangeText={(v) => updPrice(i, 'label', v)} />
           {needsDetails(p.kind) && <>
             <Input multiline placeholder="Details: what is included, duration, what to bring" value={p.description || ''} onChangeText={(v) => updPrice(i, 'description', v)} />
-            {rowBusy === i
-              ? <View style={{ height: 120, borderRadius: 10, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={C.primary} /><Text style={{ marginTop: 6, color: C.primary, fontWeight: '700' }}>Uploading photo…</Text></View>
-              : p.photo_url ? <Image source={{ uri: p.photo_url }} style={{ height: 120, borderRadius: 10 }} /> : null}
-            <Btn kind="ghost" title={rowBusy === i ? 'Please wait…' : p.photo_url ? 'Change photo' : '📷 Add photo (required)'} onPress={() => addRowPhoto(i)} /></>}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 6 }}>
+              {(p.photo_urls?.length ? p.photo_urls : (p.photo_url ? [p.photo_url] : [])).slice(0, MAX_EXTRA_PHOTOS).map((url, photoIndex) => (
+                <View key={`${url}-${photoIndex}`} style={{ marginRight: 8 }}>
+                  <Image source={{ uri: url }} style={{ width: 120, height: 80, borderRadius: 10 }} />
+                  <TouchableOpacity
+                    onPress={() => updPrice(i, 'photo_urls', (p.photo_urls?.length ? p.photo_urls : [p.photo_url]).filter((_, j) => j !== photoIndex))}
+                    style={{ position: 'absolute', right: 4, top: 4, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(16,34,46,0.8)', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {rowBusy === i && <View style={{ width: 120, height: 80, borderRadius: 10, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={C.primary} /></View>}
+            </ScrollView>
+            <Btn
+              kind="ghost"
+              disabled={rowBusy !== null || (p.photo_urls?.length || (p.photo_url ? 1 : 0)) >= MAX_EXTRA_PHOTOS}
+              title={rowBusy === i ? 'Uploading…' : `＋ Add photos (${p.photo_urls?.length || (p.photo_url ? 1 : 0)}/${MAX_EXTRA_PHOTOS})`}
+              onPress={() => addRowPhotos(i)}
+            />
+          </>}
           <Input placeholder="Price USD (0 = free)" keyboardType="decimal-pad" value={String(p.price)} onChangeText={(v) => updPrice(i, 'price', v)} />
           <Btn kind="danger" title="Remove" onPress={() => setPrices((x) => x.filter((_, j) => j !== i))} /></Card>))}
       <View style={{ flexDirection: 'row' }}>

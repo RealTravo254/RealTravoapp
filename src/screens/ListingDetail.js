@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { ScrollView, View, Text, Linking, Alert, Dimensions, TouchableOpacity } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { BackHandler, ScrollView, View, Text, Linking, Alert, Dimensions, TouchableOpacity } from 'react-native';
 import MapView, { Marker } from '../components/SafeMap';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { Btn, Card, H, Muted, Loader, SaveButton } from '../components/ui';
@@ -11,7 +12,6 @@ import Img from '../components/Img';
 import { bestOffer, ymd } from '../lib/pricing';
 import { DAYS, DAY_NAMES } from '../lib/categories';
 import { tr } from '../i18n';
-import { startPayment } from '../lib/payments';
 import { C } from '../lib/theme';
 
 const W = Dimensions.get('window').width;
@@ -19,6 +19,11 @@ const BAR_KINDS = { hotel: ['room'], resort: ['room'], airbnb: ['room'], campsit
 const PER = { per_night: '/ night', per_person: '/ person', per_group: '/ group', per_day: '/ day' };
 const CAT_LABEL = { hotel: '🏨 Hotel', resort: '🌴 Resort', campsite: '⛺ Campsite', attraction: '🏞️ Attraction', airbnb: '🏡 Airbnb', activity: '🎯 Activity', guide: '🧭 Guide', event: '🎟️ Event' };
 const ROOM_CATS = ['hotel', 'resort', 'airbnb'];
+
+function ListingVideo({ uri }) {
+  const player = useVideoPlayer(uri);
+  return <VideoView player={player} style={{ width: '100%', height: 210 }} contentFit="cover" nativeControls />;
+}
 
 // What the fixed bottom bar shows: price, entrance fee or tickets, depending on the category
 function barInfo(l, prices, formatMoney) {
@@ -41,6 +46,8 @@ export default function ListingDetail({ route, navigation }) {
   const [l, setL] = useState(null); const [prices, setPrices] = useState([]); const [offers, setOffers] = useState([]);
   const [reviews, setReviews] = useState([]); const [contact, setContact] = useState(null);
   const [slide, setSlide] = useState(0); const [left, setLeft] = useState(null);
+  const [galleryOpen, setGalleryOpen] = useState(false); const [galleryIndex, setGalleryIndex] = useState(0);
+  const galleryRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -56,12 +63,22 @@ export default function ListingDetail({ route, navigation }) {
     })();
   }, [id, session?.user?.id]);
 
+  useEffect(() => {
+    if (!galleryOpen) return undefined;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      setGalleryOpen(false);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [galleryOpen]);
+
   const book = () => { if (ensureLogin(navigation, 'book')) navigation.navigate('Booking', { listing: l, prices, offers }); };
 
   if (!l) return <Loader />;
   const offer = bestOffer(offers);
   const bar = barInfo(l, prices, formatMoney);
-  const photos = l.photos?.length ? l.photos : [null];
+  const galleryPhotos = (l.photos || []).filter(Boolean).slice(0, 6);
+  const photos = galleryPhotos.length ? galleryPhotos : [null];
   const hasRooms = ROOM_CATS.includes(l.category);
   const rooms = hasRooms ? prices.filter((p) => p.kind === 'room').sort((a, b) => Number(a.price) - Number(b.price)) : [];
   const extras = prices.filter((p) => ['facility', 'activity'].includes(p.kind));
@@ -70,6 +87,11 @@ export default function ListingDetail({ route, navigation }) {
   const hoursTitle = ['hotel', 'resort'].includes(l.category) ? 'Reception hours' : 'Opening hours';
 
   const fmt = (x) => new Date(x + 'T12:00:00').toDateString();
+  const goToGalleryPhoto = (index) => {
+    const next = Math.max(0, Math.min(index, galleryPhotos.length - 1));
+    setGalleryIndex(next);
+    galleryRef.current?.scrollTo({ x: next * W, animated: true });
+  };
   const sched = l.category === 'event' || l.schedule_type === 'one_time' ? { t: 'Happens once', v: l.event_date ? new Date(l.event_date).toLocaleString() : 'Date to be announced' }
     : l.schedule_type === 'tour' && l.starts_on ? { t: 'Tour / trip', v: `${fmt(l.starts_on)} → ${fmt(l.ends_on || l.starts_on)}${l.open_time ? ` · departs ${l.open_time.slice(0, 5)}` : ''}` }
     : l.schedule_type === 'range' && l.starts_on ? { t: 'Available between', v: `${fmt(l.starts_on)} → ${fmt(l.ends_on || l.starts_on)}` } : null;
@@ -85,9 +107,16 @@ export default function ListingDetail({ route, navigation }) {
           <SaveButton id={l.id} /><ShareButton item={l} />
           <View style={{ position: 'absolute', left: 12, bottom: 28, backgroundColor: 'rgba(16,34,46,0.8)', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 }}>
             <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{CAT_LABEL[l.category] || l.category}</Text></View>
+          {!!galleryPhotos.length && <TouchableOpacity
+            onPress={() => { setGalleryIndex(0); setGalleryOpen(true); }}
+            style={{ position: 'absolute', right: 12, bottom: 24, backgroundColor: 'rgba(16,34,46,0.85)', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8 }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>See all images ({galleryPhotos.length})</Text>
+          </TouchableOpacity>}
           {photos.length > 1 && <View style={{ position: 'absolute', bottom: 12, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center' }}>
             {photos.map((_, i) => <View key={i} style={{ width: i === slide ? 20 : 7, height: 7, borderRadius: 4, marginHorizontal: 3, backgroundColor: i === slide ? '#fff' : 'rgba(255,255,255,0.55)' }} />)}</View>}
         </View>
+        {l.video_url && <Card style={{ padding: 0, overflow: 'hidden' }}><ListingVideo uri={l.video_url} /></Card>}
         <H>{l.title}</H>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 12, marginBottom: 2 }}><Ionicons name="person-circle-outline" size={20} color={C.primary} /><Text style={{ marginLeft: 6, color: C.muted }}>Hosted by <Text style={{ fontWeight: '800', color: C.text }}>{l.providers?.business_name || 'Host'}</Text></Text></View>
         <Muted style={{ marginHorizontal: 12 }}>{CAT_LABEL[l.category] || l.category} · {l.location_name || l.region}, {l.country} · ⭐ {Number(l.rating_avg).toFixed(1)} ({l.rating_count})</Muted>
@@ -132,7 +161,11 @@ export default function ListingDetail({ route, navigation }) {
           return (<View key={k}><H>{k === 'facility' ? 'Facilities' : 'Activities'}</H>
             {items.map((p) => (
               <Card key={p.id} style={{ padding: 0, overflow: 'hidden' }}>
-                <Img uri={p.photo_url} category={l.category} style={{ height: 150 }} />
+                <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+                  {(p.photo_urls?.length ? p.photo_urls : (p.photo_url ? [p.photo_url] : [])).slice(0, 4).map((uri, index) => (
+                    <Img key={`${uri}-${index}`} uri={uri} category={l.category} style={{ width: W - 52, height: 150 }} />
+                  ))}
+                </ScrollView>
                 <View style={{ padding: 12 }}>
                   <Text style={{ fontWeight: '800', fontSize: 16 }}>{p.label}</Text>
                   {p.description ? <Text style={{ marginVertical: 4 }}>{p.description}</Text> : null}
@@ -172,6 +205,37 @@ export default function ListingDetail({ route, navigation }) {
           <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>{tr('book')}</Text>
         </TouchableOpacity>
       </View>
+      {galleryOpen && <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 90 + insets.bottom, zIndex: 30, elevation: 30, backgroundColor: '#101820' }}>
+        <View style={{ height: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 }}>
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>Photo gallery</Text>
+          <TouchableOpacity onPress={() => setGalleryOpen(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Ionicons name="close" size={28} color="#fff" />
+          </TouchableOpacity>
+        </View>
+        <ScrollView
+          ref={galleryRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(event) => setGalleryIndex(Math.round(event.nativeEvent.contentOffset.x / W))}
+          style={{ flex: 1 }}
+        >
+          {galleryPhotos.map((uri, index) => (
+            <View key={`${uri}-${index}`} style={{ width: W, flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+              <Img uri={uri} category={l.category} style={{ width: W, height: '100%' }} resizeMode="contain" />
+            </View>
+          ))}
+        </ScrollView>
+        <View style={{ height: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18 }}>
+          <TouchableOpacity disabled={galleryIndex === 0} onPress={() => goToGalleryPhoto(galleryIndex - 1)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="chevron-back" size={26} color={galleryIndex === 0 ? '#63717B' : '#fff'} />
+          </TouchableOpacity>
+          <Text style={{ color: '#fff', fontWeight: '700' }}>{galleryIndex + 1} / {galleryPhotos.length}</Text>
+          <TouchableOpacity disabled={galleryIndex >= galleryPhotos.length - 1} onPress={() => goToGalleryPhoto(galleryIndex + 1)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="chevron-forward" size={26} color={galleryIndex >= galleryPhotos.length - 1 ? '#63717B' : '#fff'} />
+          </TouchableOpacity>
+        </View>
+      </View>}
     </View>
   );
 }

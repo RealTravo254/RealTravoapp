@@ -9,7 +9,7 @@ import { useAuth } from '../lib/AuthContext';
 import { Btn, Card, Input, Label, Muted, Chip, Pager, Stepper } from '../components/ui';
 import PhoneField from '../components/PhoneField';
 import { transferPrice, ymd } from '../lib/pricing';
-import { startPayment } from '../lib/payments';
+import { choosePayment } from '../lib/payments';
 import { isValidContactPhone } from '../lib/phone';
 
 // Full package: several listings + pickup transport, booked and paid in one go.
@@ -52,7 +52,7 @@ export default function TripBuilder({ navigation }) {
       const { data: b } = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: c.id, package_id: pkg.id, guests: Number(people), start_date: pkg.start_date, end_date: pkg.end_date, nights: Number(days), contact_phone: contactPhone, subtotal: t, total: t }).select().single();
       await supabase.from('booking_items').insert(c.items.map(p => ({ booking_id: b.id, price_id: p.id, label: p.label, quantity: Number(people), unit_price: p.price, amount: Number(p.price) * Number(people) })));
     }
-    try { const p = await startPayment({ purpose: 'package', packageId: pkg.id }); navigation.replace('Pay', { url: p.authorization_url }); } catch (e) { Alert.alert('Payment', e.message); }
+    try { choosePayment(navigation, { purpose: 'package', packageId: pkg.id }); } catch (e) { Alert.alert('Payment', e.message); }
   };
   return (
     <ScrollView contentContainerStyle={{ padding: 12 }}>

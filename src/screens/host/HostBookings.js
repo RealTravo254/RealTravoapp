@@ -8,7 +8,7 @@ import { C, shadow } from '../../lib/theme';
 import Pagination from '../../components/Pagination';
 import { refreshCheckinCache } from '../../lib/offlineCheckins';
 
-const FILTERS = [['all', 'All'], ['pending', 'Pending'], ['accepted', 'Accepted'], ['completed', 'Completed']];
+const FILTERS = [['all', 'All'], ['pending', 'Pending'], ['accepted', 'Accepted'], ['completed', 'Completed'], ['no_show', 'No-show review']];
 
 const STATUS = {
   pending: { label: 'Needs your reply', fg: C.amberInk, bg: C.amberSoft },
@@ -78,10 +78,11 @@ export default function HostBookings({ navigation }) {
     const from = page * PAGE_SIZE;
     let q = supabase
       .from('bookings')
-      .select('*, listings(title), booking_items(*)', { count: 'exact' })
+      .select('*, listings(title,category), booking_items(*)', { count: 'exact' })
       .in('listing_id', ids)
       .in('payment_status', ['paid', 'refunded']);
-    if (filter !== 'all') q = q.eq('status', filter);
+    if (filter === 'no_show') q = q.eq('no_show_resolution', 'pending');
+    else if (filter !== 'all') q = q.eq('status', filter);
     const { data, error, count } = await q
       .order('urgent', { ascending: false })
       .order('created_at', { ascending: false })
@@ -118,6 +119,23 @@ export default function HostBookings({ navigation }) {
     { text: 'Keep it', style: 'cancel' },
     { text: 'Decline', style: 'destructive', onPress: () => respond(id, false) },
   ]);
+  const reportNoShow = (booking) => Alert.alert(
+    'Report guest no-show?',
+    'Only report this after the scheduled activity or guided trip has started and the guest did not arrive. Admin will contact the guest before deciding the outcome.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Report no-show',
+        style: 'destructive',
+        onPress: async () => {
+          const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+          const { error } = await supabase.rpc('report_booking_no_show', { p_booking: booking.id, p_time_zone: timeZone });
+          if (error) Alert.alert('Could not report no-show', error.message);
+          else { Alert.alert('Reported', 'Admin will review this booking and contact the guest.'); load(); }
+        },
+      },
+    ],
+  );
 
   const Header = (
     <View>
@@ -147,6 +165,16 @@ export default function HostBookings({ navigation }) {
 
   const renderItem = ({ item: b }) => {
     const sameDay = !b.end_date || b.end_date === b.start_date;
+    const scheduledAt = b.start_date
+      ? new Date(`${b.start_date}T${b.start_time ? b.start_time.slice(0, 5) : '23:59:59'}`)
+      : null;
+    const canReportNoShow = ['activity', 'guide'].includes(b.listings?.category)
+      && ['accepted', 'completed'].includes(b.status)
+      && b.payment_status === 'paid'
+      && !b.no_show_resolution
+      && !b.checked_in_at
+      && scheduledAt
+      && scheduledAt <= new Date();
     return (
       <View style={[s.card, b.urgent && s.cardUrgent]}>
         {b.urgent && (
@@ -158,7 +186,12 @@ export default function HostBookings({ navigation }) {
 
         <Text style={s.cardTitle} numberOfLines={2}>{b.listings?.title}</Text>
         <View style={s.pills}>
-          <Pill conf={STATUS[b.status]} fallback={b.status} />
+          <Pill
+            conf={b.no_show_resolution === 'pending'
+              ? { label: 'No-show · Admin review', fg: C.amberInk, bg: C.amberSoft }
+              : STATUS[b.status]}
+            fallback={b.status}
+          />
           <Pill conf={PAY[b.payment_status]} fallback={b.payment_status} />
         </View>
 
@@ -206,6 +239,12 @@ export default function HostBookings({ navigation }) {
             <Text style={s.warnText}>Cancellation requested. Waiting for the guest.</Text>
           </View>
         )}
+        {b.no_show_resolution === 'pending' && (
+          <View style={s.warn}>
+            <Ionicons name="time-outline" size={16} color={C.amberInk} />
+            <Text style={[s.warnText, { color: C.amberInk }]}>Payment is held while Admin contacts the guest.</Text>
+          </View>
+        )}
 
         {(b.status === 'pending' || ['pending', 'accepted', 'completed'].includes(b.status) || (['pending', 'accepted'].includes(b.status) && !b.cancel_requested)) && <View style={s.divider} />}
 
@@ -217,6 +256,15 @@ export default function HostBookings({ navigation }) {
           </View>
         )}
         <View style={s.actionRow}>
+          {canReportNoShow && (
+            <Btn
+              flex
+              tone="danger"
+              icon="person-remove-outline"
+              title="Report no-show"
+              onPress={() => reportNoShow(b)}
+            />
+          )}
           {['pending', 'accepted', 'completed'].includes(b.status) && (
             <Btn flex icon="chatbubbles-outline" title="Chat" onPress={() => navigation.navigate('Chat', { bookingId: b.id, title: b.listings?.title })} />
           )}

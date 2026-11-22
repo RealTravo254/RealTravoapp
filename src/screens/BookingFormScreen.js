@@ -12,7 +12,7 @@ import { getPosition, reverseInfo, getDistanceKm } from '../lib/geo';
 import { pickLocation } from '../lib/pickBus';
 import { ymd, scheduleProblem, transferPrice } from '../lib/pricing';
 import { abs, durationOf, hhmm, addDays, freeSlot, mainBlocks, addonClashes, overlapsBase, STAY } from '../lib/schedule';
-import { startPayment } from '../lib/payments';
+import { choosePayment } from '../lib/payments';
 import { isValidContactPhone } from '../lib/phone';
 import { C } from '../lib/theme';
 import ListingInfoModal from '../components/ListingInfoModal';
@@ -189,8 +189,7 @@ export default function BookingFormScreen({ route, navigation }) {
       }
 
       if (!payNow) { Alert.alert('Booking pending', 'Open My bookings → Pending and tap Pay now to complete your booking before it expires.'); navigation.popToTop(); navigation.navigate('Tabs', { screen: 'Trips', params: { tab: 'pending', ts: Date.now() } }); return; }
-      const p = pkg ? await startPayment({ purpose: 'package', packageId: pkg.id }) : await startPayment({ purpose: 'booking', bookingId: b.id });
-      navigation.replace('Pay', { url: p.authorization_url });
+      choosePayment(navigation, pkg ? { purpose: 'package', packageId: pkg.id } : { purpose: 'booking', bookingId: b.id });
     } catch (e) { Alert.alert('Could not book', e.message); } finally { setBusy(false); }
   };
 

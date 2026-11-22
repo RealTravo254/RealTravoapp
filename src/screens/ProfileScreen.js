@@ -21,7 +21,7 @@ const Section = ({ title, children }) => (<View style={{ marginTop: 16 }}><Text 
   <View style={{ backgroundColor: '#fff', marginHorizontal: 12, borderRadius: 14, paddingHorizontal: 14, borderWidth: 1, borderColor: C.border }}>{children}</View></View>);
 
 export default function ProfileScreen({ navigation }) {
-  const { profile, isProvider, isAdmin, session, refresh, ensureLogin, formatMoney } = useAuth();
+  const { profile, isProvider, isAdmin, session, refresh, ensureLogin } = useAuth();
 
   // Signed out: the whole page is the login / sign up / Google screen
   if (!session) return (
@@ -48,9 +48,6 @@ export default function ProfileScreen({ navigation }) {
           </View>
           <Muted>{session.user.email}</Muted>
           {isProvider && <Text style={{ marginTop: 6, color: '#1D9BF0', fontWeight: '800' }}>Verified host</Text>}
-          <View style={{ flexDirection: 'row', marginTop: 12 }}>
-            <View style={{ alignItems: 'center', paddingHorizontal: 20 }}><Text style={{ fontSize: 18, fontWeight: '800' }}>{formatMoney(profile?.balance)}</Text><Muted>{tr('balance')}</Muted></View>
-          </View>
         </View>
 
         <Section title="Personal details">
@@ -64,6 +61,7 @@ export default function ProfileScreen({ navigation }) {
         </Section>
 
         <Section title="Account settings">
+          <Row icon="wallet-outline" label="Wallet" onPress={() => navigation.navigate('Wallet')} />
           <Row icon="create-outline" label="Edit name & details" onPress={() => navigation.navigate('EditProfile')} />
           <Row icon="lock-closed-outline" label="Change password" onPress={() => navigation.navigate('ChangePassword')} />
           <Row icon="notifications-outline" label="Notifications" onPress={() => navigation.navigate('Notifications')} />

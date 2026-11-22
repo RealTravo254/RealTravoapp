@@ -7,7 +7,7 @@ import TimeField from '../components/TimeField';
 import DateField from '../components/DateField';
 import { scheduleProblem, ymd } from '../lib/pricing';
 import { abs, durationOf, hhmm, addDays, freeSlot, mainBlocks, addonClashes, overlapsBase, STAY } from '../lib/schedule';
-import { startPayment } from '../lib/payments';
+import { choosePayment } from '../lib/payments';
 import { C } from '../lib/theme';
 import ListingInfoModal from '../components/ListingInfoModal';
 
@@ -100,7 +100,7 @@ export default function AddOns({ route, navigation }) {
       let mainRow = main;
       if (draft) {
         const r = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: listing.id, package_id: pkg?.id || null, urgent: draft.urgent, guests, start_date: date, end_date: endDate, nights,
-          start_time: mainTime + ':00', note: draft.note, contact_phone: contactPhone, subtotal: draft.subtotal, discount: draft.discount, total: draft.total,
+          start_time: mainTime + ':00', note: draft.note, contact_phone: contactPhone, contact_email: session.user.email || null, subtotal: draft.subtotal, discount: draft.discount, total: draft.total,
           // pickup, drop-off and return are saved on the main booking only
           trip_type: t?.tripType || null,
           pickup_location: t?.pickup?.label || null, meeting_point: t?.pickup?.label || null, pickup_lat: t?.pickup?.lat ?? null, pickup_lng: t?.pickup?.lng ?? null, pickup_time: t ? t.pickupTime + ':00' : null,
@@ -112,15 +112,15 @@ export default function AddOns({ route, navigation }) {
       for (const c of extras) {
         const total = lineTotal(c); const end = c.nights > 1 ? addDays(c.date, c.nights - 1) : c.date;
         const r = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: c.l.id, package_id: pkg.id, parent_booking_id: mainRow.id, guests, start_date: c.date, end_date: end, nights: c.nights,
-          start_time: c.time + ':00', contact_phone: contactPhone, subtotal: total, total }).select().single();        // no pickup fields on add-ons
+          start_time: c.time + ':00', contact_phone: contactPhone, contact_email: session.user.email || null, subtotal: total, total }).select().single();        // no pickup fields on add-ons
         if (r.error) throw r.error;
         await supabase.from('booking_items').insert(c.items.map((p) => ({ booking_id: r.data.id, price_id: p.id, label: p.label, quantity: guests, unit_price: p.price,
           amount: Number(p.price) * (p.unit === 'per_group' ? 1 : guests) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1) })));
       }
       if (!payNow) { Alert.alert('Booking pending', 'Open My bookings → Pending and tap Pay now to complete your booking before it expires.'); toTrips(); return; }
-      const p = pkg ? await startPayment({ purpose: 'package', packageId: pkg.id }) : await startPayment({ purpose: 'booking', bookingId: mainRow.id, useBalance });
-      if (p.paid_with_balance) { Alert.alert('Booked', 'Paid from your balance.'); toTrips(); return; }
-      navigation.replace('Pay', { url: p.authorization_url });
+      choosePayment(navigation, pkg
+        ? { purpose: 'package', packageId: pkg.id }
+        : { purpose: 'booking', bookingId: mainRow.id, useBalance });
     } catch (e) { Alert.alert('Could not save', e.message); } finally { setBusy(false); }
   };
 

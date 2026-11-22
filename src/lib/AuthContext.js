@@ -93,5 +93,6 @@ export function AuthProvider({ children }) {
   return <Ctx.Provider value={{ session, profile, loading, lang, setLang, refresh: () => loadProfile(session?.user?.id), profileComplete, subscribed, ensureLogin,
     currency, kesPerUsd, formatMoney,
     pendingLegal, legalLoading, markAgreed, acceptLegal,
-    isProvider: profile?.role === 'provider' || profile?.role === 'admin', isAdmin: profile?.role === 'admin' }}>{children}</Ctx.Provider>;
+    isProvider: profile?.role === 'provider' || profile?.role === 'admin', isAdmin: profile?.role === 'admin',
+    isSuperAdmin: profile?.role === 'admin' && !!profile?.is_super_admin }}>{children}</Ctx.Provider>;
 }

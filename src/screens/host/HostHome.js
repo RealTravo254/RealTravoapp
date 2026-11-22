@@ -8,12 +8,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase, PAGE_SIZE } from '../../lib/supabase';
 import { useAuth } from '../../lib/AuthContext';
-import { startPayment } from '../../lib/payments';
 import ScreenHeader from '../../components/ScreenHeader';
 
 /* ---------- design tokens ---------- */
@@ -25,7 +26,6 @@ const C = {
   line: '#E3E8ED',
   primary: '#0B4F6C',
   primarySoft: '#E1EEF4',
-  amber: '#F2A81D',
   amberSoft: '#FDF2D8',
   green: '#1E8E5A',
   greenSoft: '#DDF3E8',
@@ -66,7 +66,6 @@ function StatusPill({ status }) {
 function ActionButton({ icon, title, onPress, tone = 'default' }) {
   const tones = {
     default: { fg: C.primary, bg: C.primarySoft },
-    amber: { fg: '#8A5A00', bg: C.amberSoft },
     danger: { fg: C.red, bg: C.redSoft },
   };
   const t = tones[tone];
@@ -156,6 +155,11 @@ export default function HostHome({ navigation }) {
   const [providers, setProviders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [deleteModal, setDeleteModal] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -204,29 +208,37 @@ export default function HostHome({ navigation }) {
     load();
   };
 
-  const del = (l) =>
-    Alert.alert('Delete this listing?', 'It will be removed from your dashboard.', [
-      { text: 'Keep it', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          await supabase
-            .from('listings')
-            .update({ deleted_at: new Date().toISOString(), status: 'hidden' })
-            .eq('id', l.id);
-          load();
-        },
-      },
-    ]);
+  const toggleSelection = (id) => {
+    setSelectedIds((ids) => ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+  };
 
-  const promote = async (l) => {
-    try {
-      const p = await startPayment({ purpose: 'prioritization', amount: 15, listingId: l.id });
-      navigation.navigate('Pay', { url: p.authorization_url });
-    } catch (e) {
-      Alert.alert('Error', e.message);
+  const togglePageSelection = () => {
+    const pageIds = rows.map((row) => row.id);
+    const allSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.includes(id));
+    setSelectedIds((ids) => allSelected
+      ? ids.filter((id) => !pageIds.includes(id))
+      : [...new Set([...ids, ...pageIds])]);
+  };
+
+  const deleteSelected = async () => {
+    setDeleting(true);
+    const { error } = await supabase
+      .from('listings')
+      .update({ deleted_at: new Date().toISOString(), status: 'hidden' })
+      .in('id', selectedIds)
+      .eq('owner_id', session.user.id)
+      .is('deleted_at', null);
+    if (error) {
+      setDeleting(false);
+      Alert.alert('Delete failed', error.message);
+      return;
     }
+    setDeleteModal(false);
+    setDeleteConfirmation('');
+    setSelectedIds([]);
+    setSelecting(false);
+    setDeleting(false);
+    await load();
   };
 
   const Header = (
@@ -266,8 +278,38 @@ export default function HostHome({ navigation }) {
 
       <View style={styles.sectionRow}>
         <Text style={styles.sectionTitle}>Your listings</Text>
-        {!loading && <Text style={styles.sectionCount}>{total} total</Text>}
+        <TouchableOpacity
+          onPress={() => {
+            setSelecting((value) => !value);
+            setSelectedIds([]);
+          }}
+          style={styles.selectToggle}
+        >
+          <Text style={styles.selectToggleText}>{selecting ? 'Cancel' : 'Select'}</Text>
+        </TouchableOpacity>
       </View>
+      {selecting && (
+        <View style={styles.selectionBar}>
+          <Text style={styles.sectionCount}>{selectedIds.length} selected · {total} total</Text>
+          <View style={{ flexDirection: 'row' }}>
+            <ActionButton
+              icon="checkbox-outline"
+              title={rows.length > 0 && rows.every((row) => selectedIds.includes(row.id)) ? 'Deselect page' : 'Select page'}
+              onPress={togglePageSelection}
+            />
+            <ActionButton
+              icon="trash-outline"
+              title="Delete selected"
+              tone="danger"
+              onPress={() => {
+                if (!selectedIds.length) return;
+                setDeleteConfirmation('');
+                setDeleteModal(true);
+              }}
+            />
+          </View>
+        </View>
+      )}
     </View>
   );
 
@@ -313,22 +355,25 @@ export default function HostHome({ navigation }) {
       <View style={styles.divider} />
 
       <View style={styles.actions}>
-        <ActionButton
+        {!selecting && <ActionButton
           icon="create-outline"
           title="Edit"
           onPress={() => navigation.navigate('ListingForm', { listing: l, providers })}
-        />
-        {['approved', 'hidden'].includes(l.status) && (
+        />}
+        {!selecting && ['approved', 'hidden'].includes(l.status) && (
           <ActionButton
             icon={l.status === 'approved' ? 'eye-off-outline' : 'eye-outline'}
             title={l.status === 'approved' ? 'Hide' : 'Show'}
             onPress={() => toggle(l)}
           />
         )}
-        {l.status === 'approved' && !l.is_prioritized && (
-          <ActionButton icon="rocket-outline" title="Promote" tone="amber" onPress={() => promote(l)} />
+        {selecting && (
+          <ActionButton
+            icon={selectedIds.includes(l.id) ? 'checkbox' : 'square-outline'}
+            title={selectedIds.includes(l.id) ? 'Selected' : 'Select'}
+            onPress={() => toggleSelection(l.id)}
+          />
         )}
-        <ActionButton icon="trash-outline" title="Delete" tone="danger" onPress={() => del(l)} />
       </View>
     </View>
   );
@@ -352,6 +397,39 @@ export default function HostHome({ navigation }) {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} />
         }
       />
+      <Modal
+        visible={deleteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDeleteModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.deleteDialog}>
+            <Text style={styles.dialogTitle}>Delete {selectedIds.length} listing{selectedIds.length === 1 ? '' : 's'}?</Text>
+            <Text style={styles.dialogText}>This action cannot be undone. Type confirm delete to continue.</Text>
+            <TextInput
+              value={deleteConfirmation}
+              onChangeText={setDeleteConfirmation}
+              placeholder="confirm delete"
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={styles.confirmInput}
+            />
+            <View style={styles.dialogActions}>
+              <TouchableOpacity onPress={() => setDeleteModal(false)} style={styles.cancelDelete}>
+                <Text style={styles.cancelDeleteText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                disabled={deleting || deleteConfirmation !== 'confirm delete'}
+                onPress={deleteSelected}
+                style={[styles.confirmDelete, (deleting || deleteConfirmation !== 'confirm delete') && styles.disabledDelete]}
+              >
+                <Text style={styles.confirmDeleteText}>{deleting ? 'Deleting…' : 'Delete'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -418,6 +496,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     paddingHorizontal: 2,
   },
+  selectToggle: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 9, backgroundColor: C.primarySoft },
+  selectToggleText: { color: C.primary, fontWeight: '700', fontSize: 13 },
+  selectionBar: { backgroundColor: C.card, borderRadius: 14, padding: 10, marginBottom: 10, ...shadow },
   sectionTitle: { fontSize: 19, fontWeight: '800', color: C.ink },
   sectionCount: { fontSize: 12, color: C.muted },
 
@@ -524,4 +605,15 @@ const styles = StyleSheet.create({
   numText: { fontSize: 14, fontWeight: '700', color: C.ink },
   numTextActive: { color: '#fff' },
   gap: { color: C.muted, fontWeight: '700', marginHorizontal: 4 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
+  deleteDialog: { backgroundColor: C.card, borderRadius: 18, padding: 20 },
+  dialogTitle: { fontSize: 18, fontWeight: '800', color: C.ink },
+  dialogText: { color: C.muted, marginTop: 8, lineHeight: 20 },
+  confirmInput: { borderWidth: 1, borderColor: C.line, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, marginTop: 16, color: C.ink },
+  dialogActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 },
+  cancelDelete: { paddingHorizontal: 14, paddingVertical: 10, marginRight: 8 },
+  cancelDeleteText: { color: C.muted, fontWeight: '700' },
+  confirmDelete: { backgroundColor: C.red, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 },
+  disabledDelete: { opacity: 0.45 },
+  confirmDeleteText: { color: '#fff', fontWeight: '800' },
 });

@@ -11,7 +11,7 @@ import PhoneField from '../components/PhoneField';
 import { pickLocation } from '../lib/pickBus';
 import { transferPrice } from '../lib/pricing';
 import { isValidContactPhone } from '../lib/phone';
-import { startPayment } from '../lib/payments';
+import { choosePayment } from '../lib/payments';
 import { C } from '../lib/theme';
 
 const AIRPORT_PAGE_SIZE = 8;
@@ -84,7 +84,7 @@ export default function AirportTransfer({ navigation }) {
         contact_phone: contactPhone,
         pickup_lat: from.lat, pickup_lng: from.lng, dropoff_lat: to.lat, dropoff_lng: to.lng, adults, children }).select().single();
       if (error) throw error;
-      const p = await startPayment({ purpose: 'transfer', transferId: data.id }); navigation.replace('Pay', { url: p.authorization_url });
+      choosePayment(navigation, { purpose: 'transfer', transferId: data.id });
     } catch (e) { Alert.alert('Error', e.message); } finally { setBusy(false); }
   };
 

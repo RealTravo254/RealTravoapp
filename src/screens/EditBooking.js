@@ -11,7 +11,7 @@ import { computeTotal, ymd, scheduleProblem, transferPrice } from '../lib/pricin
 import { abs, durationOf, hhmm, addDays, freeSlot, addonClashes, STAY } from '../lib/schedule';
 import { pickLocation } from '../lib/pickBus';
 import { getPosition, reverseInfo } from '../lib/geo';
-import { startPayment } from '../lib/payments'; 
+import { choosePayment } from '../lib/payments';
 import { C } from '../lib/theme';
 
 const GAP = 30;
@@ -161,8 +161,7 @@ export default function EditBooking({ route, navigation }) {
           amount: Number(p.price) * (p.unit === 'per_group' ? 1 : guests) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1) })));
       }
       if (!payNow) { Alert.alert('Saved', 'Your changes are saved. Pay before the time shown in My bookings.'); navigation.goBack(); return; }
-      const p = pkgId ? await startPayment({ purpose: 'package', packageId: pkgId }) : await startPayment({ purpose: 'booking', bookingId: id });
-      navigation.replace('Pay', { url: p.authorization_url });
+      choosePayment(navigation, pkgId ? { purpose: 'package', packageId: pkgId } : { purpose: 'booking', bookingId: id });
     } catch (e) { Alert.alert('Could not save', e.message); } finally { setBusy(false); }
   };
 
