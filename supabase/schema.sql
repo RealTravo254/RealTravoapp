@@ -244,6 +244,7 @@ begin
   if p.user_id <> new.owner_id then raise exception 'Provider mismatch'; end if;
   if not admin_can_manage('listings') then
     if p.verification <> 'approved' then raise exception 'Your provider registration is not verified yet'; end if;
+    if new.category = 'event' and p.category = 'airbnb' then raise exception 'Airbnb hosts cannot list events'; end if;
     if new.category in ('hotel','resort') and p.category <> 'hotel' then raise exception 'Your registration is for %, not %', p.category, new.category; end if;
     if new.category in ('campsite','attraction') and p.category <> new.category then raise exception 'Your registration is for %, not %', p.category, new.category; end if;
     if new.category = 'guide' and p.category not in ('activity','guide') then raise exception 'Your registration is for %, not %', p.category, new.category; end if;
@@ -253,7 +254,7 @@ begin
       raise exception 'TRA number, registration number and registration document are required for %', new.category; end if;
     if new.category = 'guide' and p.category = 'activity' and (p.registration_number is null or p.registration_document_url is null) then
       raise exception 'A business registration number and document are required for guided tours'; end if;
-    if new.category in ('airbnb','activity','event','guide') and not o.is_bnb_verified then raise exception 'Only verified hosts can list %', new.category; end if;
+    if new.category in ('airbnb','activity','guide') and not o.is_bnb_verified then raise exception 'Only verified hosts can list %', new.category; end if;
   end if;
   new.updated_at := now(); return new; end $$;
 create trigger listings_rules before insert or update on listings for each row execute function enforce_listing_rules();

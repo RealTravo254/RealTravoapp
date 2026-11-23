@@ -26,6 +26,7 @@ export default function AirportTransfer({ navigation }) {
   const [adults, setAdults] = useState(1); const [children, setChildren] = useState(0); const pax = adults + children;
   const [date, setDate] = useState(new Date()); const [time, setTime] = useState('12:00');
   const [km, setKm] = useState(null); const [contactPhone, setContactPhone] = useState(''); const [busy, setBusy] = useState(false);
+  const phoneForBooking = contactPhone.trim() || profile?.phone || '';
 
   useEffect(() => { if (!contactPhone && profile?.phone) setContactPhone(profile.phone); }, [profile?.phone]);
   useEffect(() => {
@@ -74,14 +75,14 @@ export default function AirportTransfer({ navigation }) {
     if (!airport || !place) return Alert.alert('Choose the airport and the place');
     if (!v) return Alert.alert('Choose a vehicle that fits your group');
     if (km == null) return Alert.alert('Please wait', 'We are still working out your price.');
-    if (!isValidContactPhone(contactPhone)) return Alert.alert('Phone number', 'Enter a valid phone number to continue.');
+    if (!isValidContactPhone(phoneForBooking)) return Alert.alert('Phone number', 'Enter a valid phone number to continue.');
     const [h, m] = time.split(':').map(Number); const when = new Date(date); when.setHours(h, m, 0, 0);
     if (when.getTime() < Date.now() + 3600000) return Alert.alert('Pickup time', 'Choose a time at least 1 hour from now.');
     setBusy(true);
     try {
       const { data, error } = await supabase.from('airport_transfers').insert({ user_id: session.user.id, vehicle_id: v.id, airport_id: airport.id,
         pickup: dir === 'from' ? airport.name : place.label, dropoff: dir === 'from' ? place.label : airport.name, pickup_time: when.toISOString(), passengers: pax, distance_km: km, price,
-        contact_phone: contactPhone,
+        contact_phone: phoneForBooking,
         pickup_lat: from.lat, pickup_lng: from.lng, dropoff_lat: to.lat, dropoff_lng: to.lng, adults, children }).select().single();
       if (error) throw error;
       choosePayment(navigation, { purpose: 'transfer', transferId: data.id });
@@ -135,8 +136,9 @@ export default function AirportTransfer({ navigation }) {
           <TimeField value={time} onChange={setTime} />
         </View>
 
-        <H n={4} t="Contact phone number" />
-        <PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} />
+        {isValidContactPhone(profile?.phone)
+          ? <Muted style={{ marginTop: 16 }}>Using the phone number saved in your profile: {profile.phone}</Muted>
+          : <><H n={4} t="Contact phone number" /><PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} /></>}
 
         <RoutePreview from={from} to={to}
           fromLabel={dir === 'from' ? airport?.name || 'Airport' : place?.label || 'Pickup place'}

@@ -124,6 +124,7 @@ export default function CustomTrip({ navigation }) {
   const accountEmail = session?.user?.email || '';
   const [useAccountEmail, setUseAccountEmail] = useState(true); const [contactEmail, setContactEmail] = useState(accountEmail);
   const bookingEmail = (useAccountEmail ? accountEmail : contactEmail).trim();
+  const phoneForBooking = contactPhone.trim() || profile?.phone || '';
 
   const startDay = ymd(start); const endDay = addDays(startDay, days - 1);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -356,7 +357,7 @@ export default function CustomTrip({ navigation }) {
   const selectCountry = (value) => { setCountry(value); setRegion(''); setDestination(null); };
 
   const pay = async () => {
-    if (!isValidContactPhone(contactPhone)) return Alert.alert('Phone number', 'Enter a valid phone number to continue.');
+    if (!isValidContactPhone(phoneForBooking)) return Alert.alert('Phone number', 'Enter a valid phone number to continue.');
     if (!EMAIL.test(bookingEmail)) return Alert.alert('Email address', 'Enter a valid contact email address to continue.');
     if (problems.length || pickupProblems.length) return Alert.alert('Please check', [...problems, ...pickupProblems].join('\n'));
     setBusy(true); let pkgId = null;
@@ -372,14 +373,14 @@ export default function CustomTrip({ navigation }) {
         pickup_location: pickup?.label || null, pickup_lat: pickup?.lat || null, pickup_lng: pickup?.lng || null, pickup_time: pickAt,
         dropoff_location: isReturn ? pickup?.label || null : null, dropoff_lat: isReturn ? pickup?.lat || null : null, dropoff_lng: isReturn ? pickup?.lng || null : null,
         return_date: isReturn ? returnDay : null, return_time: isReturn ? returnTime + ':00' : null,
-        contact_phone: contactPhone, contact_email: bookingEmail, vehicle_id: mode !== 'none' ? v.id : null,
+        contact_phone: phoneForBooking, contact_email: bookingEmail, vehicle_id: mode !== 'none' ? v.id : null,
         pickup_people: mode !== 'none' ? people : null, distance_km: mode !== 'none' ? km : null, transfer_price: tprice, total: grand }).select().single();
       if (r.error) throw r.error; pkgId = r.data.id;
       for (const c of items) {
         const guests = c.adults + c.children;
         const total = lineTotal(c, c.adults, c.children); const stay = isStay(c);
         const b = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: c.l.id, package_id: pkgId, guests, start_date: c.date, end_date: stay ? addDays(c.date, c.nights - 1) : c.date,
-          adults: c.adults, children: c.children, nights: stay ? c.nights : 1, start_time: c.time + ':00', contact_phone: contactPhone, contact_email: bookingEmail, trip_type: mode === 'none' ? null : mode,
+          adults: c.adults, children: c.children, nights: stay ? c.nights : 1, start_time: c.time + ':00', contact_phone: phoneForBooking, contact_email: bookingEmail, trip_type: mode === 'none' ? null : mode,
           pickup_location: pickup?.label || null, pickup_lat: pickup?.lat || null, pickup_lng: pickup?.lng || null, pickup_time: mode !== 'none' ? pickupTime + ':00' : null,
           return_date: isReturn ? returnDay : null, return_time: isReturn ? returnTime + ':00' : null, subtotal: total, total }).select().single();
         if (b.error) throw b.error;
@@ -577,7 +578,9 @@ export default function CustomTrip({ navigation }) {
               <Chip label="Use a different email" active={!useAccountEmail} onPress={() => setUseAccountEmail(false)} />
             </View>
             {!useAccountEmail && <><Label>Contact email</Label><Input value={contactEmail} onChangeText={setContactEmail} placeholder="name@example.com" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" /></>}
-            <Label>Contact phone number</Label><PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} />
+            {isValidContactPhone(profile?.phone)
+              ? <Muted>Using the phone number saved in your profile: {profile.phone}</Muted>
+              : <><Label>Contact phone number</Label><PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} /></>}
           </Card>
         </>}
       </View>

@@ -3,7 +3,6 @@ import { ScrollView, View, Text, Alert, Image, Switch, ActivityIndicator, Toucha
 import { getPosition } from '../../lib/geo';
 import { ymd } from '../../lib/pricing';
 import TimeField from '../../components/TimeField';
-import { CONFIG } from '../../lib/config';
 import PickerSheet from '../../components/PickerSheet';
 import { pickLocation } from '../../lib/pickBus';
 import { supabase } from '../../lib/supabase';
@@ -77,7 +76,7 @@ export default function ListingForm({ route, navigation }) {
   const [prices, setPrices] = useState([]); const [pricesLoaded, setPricesLoaded] = useState(!listing);
   const [newPT, setNewPT] = useState('08:00');
   const [contact, setContact] = useState({ email: provider?.contact_email || '', phone: provider?.contact_phone || '', whatsapp: provider?.contact_whatsapp || '' });
-  const [placeQ, setPlaceQ] = useState(''); const [results, setResults] = useState([]); const [dpick, setDpick] = useState(null);
+  const [dpick, setDpick] = useState(null);
   const [regions, setRegions] = useState([]); const [sameWa, setSameWa] = useState(true);
   const [busy, setBusy] = useState(null); // text while general photos are picking/uploading
   const [rowBusy, setRowBusy] = useState(null); // index of the price row whose photo is uploading
@@ -110,14 +109,8 @@ export default function ListingForm({ route, navigation }) {
     });
   }, [mainKind, isFree, pricesLoaded]);
 
-  const searchPlace = async () => {
-    const r = await fetch(`https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(placeQ)}&key=${CONFIG.googleKey}`).then((x) => x.json());
-    const seen = new Set();
-    setResults((r.results || []).filter((p) => !seen.has(p.place_id) && seen.add(p.place_id)).slice(0, 5));
-  };
-  const pick = (p) => { setF((x) => ({ ...x, location_name: p.name + ', ' + (p.formatted_address || ''), lat: p.geometry.location.lat, lng: p.geometry.location.lng, google_place_id: p.place_id })); setResults([]); };
   const here = async () => { const p = await getPosition(); if (p) setF((x) => ({ ...x, lat: p.lat, lng: p.lng })); };
-  const onMap = async () => { const r = await pickLocation(navigation, 'Choose the place on the map'); if (r) setF((x) => ({ ...x, lat: r.lat, lng: r.lng, location_name: r.label })); };
+  const onMap = async () => { const r = await pickLocation(navigation, 'Choose the place on the map', { hideSearch: true }); if (r) setF((x) => ({ ...x, lat: r.lat, lng: r.lng, location_name: r.label })); };
 
   const setDay = (d, patch) => setF((x) => ({ ...x, hours: { ...x.hours, [d]: patch } }));
   const sched = f.category === 'event' ? 'one_time' : ['activity', 'guide'].includes(f.category) ? f.schedule_type : 'always'; const showHours = !['tour', 'one_time'].includes(sched);
@@ -252,13 +245,16 @@ export default function ListingForm({ route, navigation }) {
           : <Muted>You have already listed everything this registration allows.</Muted>}
       <Label>{f.category === 'resort' ? 'Resort name' : f.category === 'hotel' ? 'Hotel name' : 'Title'}</Label><Input value={f.title} onChangeText={set('title')} />
       <Label>Description</Label><Input multiline value={f.description} onChangeText={set('description')} />
-      <Label>Country</Label><CountryPicker value={f.country} onChange={set('country')} />
-      <Label>Region</Label>{regions.length ? <SelectField value={f.region} options={regions.map((r) => ({ value: r, label: r }))} onChange={set('region')} placeholder="Select region" title="Region" /> : <Input value={f.region} onChangeText={set('region')} />}
+      <Label>Country</Label>{listing ? <Muted>{f.country || 'Not set'}</Muted> : <CountryPicker value={f.country} onChange={set('country')} />}
+      <Label>Region</Label>{listing
+        ? <Muted>{f.region || 'Not set'}</Muted>
+        : regions.length
+          ? <SelectField value={f.region} options={regions.map((r) => ({ value: r, label: r }))} onChange={set('region')} placeholder="Select region" title="Region" />
+          : <Input value={f.region} onChangeText={set('region')} />}
+      {listing && <Muted>Country and region cannot be changed after the listing is created.</Muted>}
 
-      <Label>Location (Google Places)</Label>
-      <Input value={placeQ} onChangeText={setPlaceQ} placeholder="Search place name on Google" /><Btn kind="ghost" title="Search Google Places" onPress={searchPlace} />
-      {results.map((r) => <Card key={r.place_id} onPress={() => pick(r)} style={{ marginHorizontal: 0 }}><Text>{r.name}</Text><Muted>{r.formatted_address}</Muted></Card>)}
-      <Btn kind="ghost" title="🗺️ Choose on map (search or tap)" onPress={onMap} />
+      <Label>Location</Label>
+      <Btn kind="ghost" title="🗺️ Choose on map (tap to place a pin)" onPress={onMap} />
       <Btn kind="ghost" title="Use my current location" onPress={here} />
       <Muted>{f.lat ? `📍 ${f.location_name || ''} (${f.lat.toFixed(4)}, ${f.lng.toFixed(4)})` : 'No location chosen'}</Muted>
 

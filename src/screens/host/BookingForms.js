@@ -23,6 +23,7 @@ export default function BookingForms({ navigation }) {
   useFocusEffect(useCallback(() => { load(); }, [load]));
   const active = subs.filter((s) => (!s.ends_at || new Date(s.ends_at) > new Date()) && (s.forms_limit == null || s.forms_used < s.forms_limit));
   const left = active.some((s) => s.forms_limit == null) ? 'Unlimited' : String(active.reduce((a, s) => a + (s.forms_limit - s.forms_used), 0));
+  const canCreate = left === 'Unlimited' || Number(left) > 0;
   const link = (f) => `travelapp://form/${f.slug}`;
   const share = (f) => Share.share({ message: `Book "${f.title}" (${f.listings?.title}) on RealTravo for ${formatMoney(f.price)} per person.\nOpen the booking form: ${link(f)}` }).catch(() => {});
   const create = async () => {
@@ -42,13 +43,13 @@ export default function BookingForms({ navigation }) {
   return (
     <ScrollView keyboardShouldPersistTaps="handled">
       <Card><Text style={{ fontWeight: '800', fontSize: 16 }}>Forms you can still create: <Text style={{ color: C.primary }}>{left}</Text></Text>
-        <Muted>Plans are managed outside the app.</Muted></Card>
+        <Muted>{canCreate ? 'Plans are managed outside the app.' : 'A booking-form plan is required. Contact support to add one; in-app plan purchases are unavailable.'}</Muted></Card>
       <Card>
         <Text style={{ fontWeight: '800', marginBottom: 4 }}>New booking form</Text>
         <Label>Listing</Label><SelectField value={lid} options={listings.map((l) => ({ value: l.id, label: l.title }))} onChange={setLid} placeholder="Choose one of your live listings" title="Your listings" />
         <Label>Title (e.g. “Maasai Mara 3-day trip”)</Label><Input value={title} onChangeText={setTitle} />
         <Label>Price per person (USD)</Label><Input keyboardType="decimal-pad" value={price} onChangeText={setPrice} />
-        <Btn title="Create booking form" onPress={create} />
+        <Btn title="Create booking form" onPress={create} disabled={!canCreate} />
       </Card>
       {shown.map((f) => (
         <Card key={f.id}>
