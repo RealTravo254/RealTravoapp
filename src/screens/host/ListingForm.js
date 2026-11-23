@@ -29,16 +29,13 @@ const uniqById = (arr) => { const seen = new Set(); return (arr || []).filter((r
 
 // what each kind of host may list.
 const CAT_OPTS = {
-  hotel: ['hotel', 'resort'],
-  campsite: ['campsite'],
-  attraction: ['attraction'],
-  activity: ['airbnb', 'activity', 'guide'],
+  hotel: ['hotel', 'resort', 'event'],
+  campsite: ['campsite', 'event'],
+  attraction: ['attraction', 'event'],
+  activity: ['airbnb', 'activity', 'guide', 'event'],
 };
-const CAT_LABEL = { hotel: 'Hotel', resort: 'Resort', campsite: 'Campsite', attraction: 'Attraction', airbnb: 'Airbnb', activity: 'Activity', guide: 'Guide' };
+const CAT_LABEL = { hotel: 'Hotel', resort: 'Resort', campsite: 'Campsite', attraction: 'Attraction', airbnb: 'Airbnb', activity: 'Activity', event: 'Event', guide: 'Guided tour / guide' };
 const PROV_LABEL = { hotel: 'Hotel / Resort', campsite: 'Campsite', attraction: 'Attraction', activity: 'Company / business' };
-
-// These can only be listed ONCE per provider (hotel and resort share the same slot).
-const SLOT = { hotel: 'lodging', resort: 'lodging', campsite: 'campsite', attraction: 'attraction' };
 
 // The "main" price each category must have
 const MAIN = { hotel: 'room', resort: 'room', campsite: 'room', airbnb: 'room', guide: 'guide' }; // everything else = entrance
@@ -59,20 +56,11 @@ export default function ListingForm({ route, navigation }) {
   const approved = providers.filter((p) => p.verification === 'approved');
   const [providerId, setProviderId] = useState(listing?.provider_id || approved[0]?.id);
   const provider = providers.find((p) => p.id === providerId);
-  const locked = !!listing?.verified_once; // location is fixed after the first approval
   const catLocked = !!listing; // category can never be changed once the listing exists
   const old = listing?.facilities || [];
 
-  // what this provider already listed (to enforce one hotel/resort, one campsite, one attraction)
-  const [existing, setExisting] = useState(null);
-  useEffect(() => {
-    if (!providerId) return;
-    setExisting(null);
-    supabase.from('listings').select('id, category').eq('provider_id', providerId).is('deleted_at', null).then(({ data }) => setExisting(data || []));
-  }, [providerId]);
-  const taken = new Set((existing || []).filter((x) => x.id !== listing?.id && SLOT[x.category]).map((x) => SLOT[x.category]));
   const allOpts = CAT_OPTS[provider?.category] || [];
-  const catOptions = allOpts.filter((c) => !SLOT[c] || !taken.has(SLOT[c]));
+  const catOptions = allOpts;
 
   const [f, setF] = useState({ category: listing?.category || allOpts[0] || 'hotel', title: listing?.title || '', description: listing?.description || '',
     country: listing?.country || provider?.country || '', region: listing?.region || provider?.region || '', location_name: listing?.location_name || '',
@@ -85,12 +73,6 @@ export default function ListingForm({ route, navigation }) {
     photos: [...new Set(listing?.photos || [])].slice(0, MAX_PHOTOS), event_date: listing?.event_date, schedule_type: listing?.schedule_type || 'always', starts_on: listing?.starts_on || '', ends_on: listing?.ends_on || '',
     tour_time: listing?.open_time ? listing.open_time.slice(0, 5) : '08:00', one_date: listing?.event_date ? ymd(new Date(listing.event_date)) : '',
     one_time: listing?.event_date ? `${String(new Date(listing.event_date).getHours()).padStart(2, '0')}:${String(new Date(listing.event_date).getMinutes()).padStart(2, '0')}` : '18:00', daily_limit: listing?.daily_limit ? String(listing.daily_limit) : '', pickup_times: listing?.pickup_times || [] });
-
-  // new listing: if the chosen category is no longer allowed (e.g. hotel already listed), jump to the first allowed one
-  useEffect(() => {
-    if (listing || !existing || !catOptions.length) return;
-    if (!catOptions.includes(f.category)) setF((x) => ({ ...x, category: catOptions[0], accommodation_available: ['hotel', 'resort', 'campsite', 'airbnb'].includes(catOptions[0]) }));
-  }, [existing, providerId]);
 
   const [prices, setPrices] = useState([]); const [pricesLoaded, setPricesLoaded] = useState(!listing);
   const [newPT, setNewPT] = useState('08:00');
@@ -138,7 +120,7 @@ export default function ListingForm({ route, navigation }) {
   const onMap = async () => { const r = await pickLocation(navigation, 'Choose the place on the map'); if (r) setF((x) => ({ ...x, lat: r.lat, lng: r.lng, location_name: r.label })); };
 
   const setDay = (d, patch) => setF((x) => ({ ...x, hours: { ...x.hours, [d]: patch } }));
-  const sched = ['activity', 'guide'].includes(f.category) ? f.schedule_type : 'always'; const showHours = !['tour', 'one_time'].includes(sched);
+  const sched = f.category === 'event' ? 'one_time' : ['activity', 'guide'].includes(f.category) ? f.schedule_type : 'always'; const showHours = !['tour', 'one_time'].includes(sched);
   const copyToAll = () => { const first = DAYS.map((d) => f.hours[d]).find((h) => !h.closed); if (first) setF((x) => ({ ...x, hours: Object.fromEntries(DAYS.map((d) => [d, { ...first }])) })); };
   const toggleAmenity = (a) => set('amenities')(f.amenities.includes(a) ? f.amenities.filter((x) => x !== a) : [...f.amenities, a]);
 
@@ -192,7 +174,7 @@ export default function ListingForm({ route, navigation }) {
 
   const save = async () => {
     if (!providerId) return Alert.alert('Your provider registration must be approved first');
-    if (!catOptions.includes(f.category)) return Alert.alert('Category', SLOT[f.category] ? `You already listed your ${CAT_LABEL[f.category].toLowerCase()}. You can only list one.` : 'Your registration cannot list this type.');
+    if (!catOptions.includes(f.category)) return Alert.alert('Category', 'Your registration cannot list this type.');
     if (!f.title || !f.lat) return Alert.alert('Title and a map location are required');
     if (!isFree && !prices.some((p) => p.kind === mainKind && Number(p.price) > 0)) return Alert.alert(MAIN_TXT[mainKind].title, `Enter the ${MAIN_TXT[mainKind].title.toLowerCase()} (more than 0)${canBeFree ? ', or switch on "Free entrance"' : ''}.`);
     if (f.accommodation_available && mainKind !== 'room' && !prices.some((p) => p.kind === 'room' && Number(p.price) > 0))
@@ -216,7 +198,7 @@ export default function ListingForm({ route, navigation }) {
       opening_hours: f.hours, open_days: openDays, open_time: sched === 'tour' ? f.tour_time : first.open, close_time: first.close, entrance_fee_free: isFree, accommodation_available: f.accommodation_available, facilities: amenities, photos: f.photos, video_url: videoUrl, event_date: eventIso, schedule_type: sched, starts_on: (sched === 'range' || sched === 'tour') ? f.starts_on : null, ends_on: (sched === 'range' || sched === 'tour') ? f.ends_on : null,
       daily_limit: f.daily_limit ? Number(f.daily_limit) : null, pickup_times: ['guide', 'activity'].includes(f.category) ? f.pickup_times : [], status: ['approved', 'hidden'].includes(listing?.status) ? listing.status : 'pending', admin_note: null };
     const q = listing ? supabase.from('listings').update(row).eq('id', listing.id).select().single() : supabase.from('listings').insert(row).select().single();
-    const { data, error } = await q; if (error) return Alert.alert('Cannot save', /one_listing_per_provider|one_main_listing/.test(error.message) ? `You can list only one ${CAT_LABEL[f.category].toLowerCase()}.` : error.message);
+    const { data, error } = await q; if (error) return Alert.alert('Cannot save', error.message);
     if (listing) await supabase.from('listing_prices').delete().eq('listing_id', data.id);
     const toSave = prices.filter((p) => !(isFree && p.kind === mainKind));
     if (toSave.length) {
@@ -233,10 +215,10 @@ export default function ListingForm({ route, navigation }) {
   };
 
   const providerNote = !provider ? null
-    : provider.category === 'hotel' ? 'Hotel / resort host: one hotel or resort.'
-    : provider.category === 'campsite' ? 'Campsite host: one campsite.'
-    : provider.category === 'attraction' ? 'Attraction host: one attraction.'
-    : 'Company: Airbnbs, activities, guided tours, trips and guides. No separate verification per listing.';
+    : provider.category === 'hotel' ? 'Hotel / resort hosts can list multiple hotels, resorts, and events.'
+    : provider.category === 'campsite' ? 'Campsite hosts can list multiple campsites and events.'
+    : provider.category === 'attraction' ? 'Attraction hosts can list multiple attractions and events.'
+    : 'Company: list multiple Airbnbs, activities, guided tours, trips, and events.';
 
   const renderMainRow = (p, i, count) => (
     <View key={i} style={{ marginBottom: 10 }}>
@@ -268,19 +250,16 @@ export default function ListingForm({ route, navigation }) {
         : catOptions.length
           ? <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{catOptions.map((c) => <View key={c} style={{ marginBottom: 6 }}><Chip label={CAT_LABEL[c] || c} active={f.category === c} onPress={() => setCategory(c)} /></View>)}</View>
           : <Muted>You have already listed everything this registration allows.</Muted>}
-      {!catLocked && existing && allOpts.some((c) => SLOT[c] && taken.has(SLOT[c])) && <Muted>You already have your {allOpts.filter((c) => SLOT[c] && taken.has(SLOT[c])).map((c) => CAT_LABEL[c].toLowerCase()).join(' / ')} listed, so only the other types are shown.</Muted>}
-
       <Label>{f.category === 'resort' ? 'Resort name' : f.category === 'hotel' ? 'Hotel name' : 'Title'}</Label><Input value={f.title} onChangeText={set('title')} />
       <Label>Description</Label><Input multiline value={f.description} onChangeText={set('description')} />
       <Label>Country</Label><CountryPicker value={f.country} onChange={set('country')} />
       <Label>Region</Label>{regions.length ? <SelectField value={f.region} options={regions.map((r) => ({ value: r, label: r }))} onChange={set('region')} placeholder="Select region" title="Region" /> : <Input value={f.region} onChangeText={set('region')} />}
 
       <Label>Location (Google Places)</Label>
-      {locked ? <Muted>🔒 Location cannot be changed after verification.</Muted> : <>
-        <Input value={placeQ} onChangeText={setPlaceQ} placeholder="Search place name on Google" /><Btn kind="ghost" title="Search Google Places" onPress={searchPlace} />
-        {results.map((r) => <Card key={r.place_id} onPress={() => pick(r)} style={{ marginHorizontal: 0 }}><Text>{r.name}</Text><Muted>{r.formatted_address}</Muted></Card>)}
-        <Btn kind="ghost" title="🗺️ Choose on map (search or tap)" onPress={onMap} />
-        <Btn kind="ghost" title="Use my current location" onPress={here} /></>}
+      <Input value={placeQ} onChangeText={setPlaceQ} placeholder="Search place name on Google" /><Btn kind="ghost" title="Search Google Places" onPress={searchPlace} />
+      {results.map((r) => <Card key={r.place_id} onPress={() => pick(r)} style={{ marginHorizontal: 0 }}><Text>{r.name}</Text><Muted>{r.formatted_address}</Muted></Card>)}
+      <Btn kind="ghost" title="🗺️ Choose on map (search or tap)" onPress={onMap} />
+      <Btn kind="ghost" title="Use my current location" onPress={here} />
       <Muted>{f.lat ? `📍 ${f.location_name || ''} (${f.lat.toFixed(4)}, ${f.lng.toFixed(4)})` : 'No location chosen'}</Muted>
 
       {showHours && <>
@@ -296,10 +275,10 @@ export default function ListingForm({ route, navigation }) {
       <Btn kind="ghost" title="Copy first open day to every day" onPress={copyToAll} />
       </>}
 
-      {['activity', 'guide'].includes(f.category) && (<>
+      {['activity', 'guide', 'event'].includes(f.category) && (<>
         <Label>When does it happen?</Label>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-          {[['always', 'Ongoing (no end date)'], ['range', 'Activity with an end date'], ['tour', 'Tour / trip with start & end date'], ['one_time', 'Happens once (date & time)']].map(([k, l]) => <View key={k} style={{ marginBottom: 6 }}><Chip label={l} active={sched === k} onPress={() => set('schedule_type')(k)} /></View>)}</View>
+          {(f.category === 'event' ? [['one_time', 'Event date & time']] : [['always', 'Ongoing (no end date)'], ['range', 'Activity with an end date'], ['tour', 'Tour / trip with start & end date'], ['one_time', 'Happens once (date & time)']]).map(([k, l]) => <View key={k} style={{ marginBottom: 6 }}><Chip label={l} active={sched === k} onPress={() => set('schedule_type')(k)} /></View>)}</View>
         {(sched === 'range' || sched === 'tour') && <>
           <Btn kind="ghost" title={`📅 Starts: ${f.starts_on || 'pick a date'}`} onPress={() => setDpick('start')} />
           <Btn kind="ghost" title={`🏁 Ends: ${f.ends_on || 'pick a date'}`} onPress={() => setDpick('end')} />

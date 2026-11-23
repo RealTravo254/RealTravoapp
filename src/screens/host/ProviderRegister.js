@@ -13,18 +13,18 @@ import PhoneField from '../../components/PhoneField';
 
 // Host types the user can choose AFTER their identity is approved.
 // "key" is the providers.category value saved in the database.
-// multi:  true  -> the host can register several (Airbnb: many stays, each with its own details)
+// multi:  true  -> the host can register several provider profiles of this type
 //         false -> one registration only
 // events: true  -> the host can also host events. Airbnb hosts cannot host events or activities.
 const TYPES = [
   { key: 'hotel', label: 'Hotel / restaurant', docs: 'full', multi: false, events: true,
-    help: 'You can list one hotel or restaurant, and you can also host events. TRA and a business registration document are required.' },
+    help: 'You can list multiple hotels or resorts and host events. TRA and a business registration document are required.' },
   { key: 'attraction', label: 'Attraction', docs: 'full', multi: false, events: true,
-    help: 'You can list one attraction, and you can also host events. TRA and a business registration document are required.' },
+    help: 'You can list multiple attractions and host events. TRA and a business registration document are required.' },
   { key: 'activity', label: 'Trips, events, tours & activities', docs: 'reg', multi: false, events: true,
     help: 'Verified once as a company or business. You can then list many trips, events, guided tours and activities. A business registration number and document are required.' },
   { key: 'campsite', label: 'Campsite', docs: 'full', multi: false, events: true,
-    help: 'You can list one campsite, and you can also host events. TRA and a business registration document are required.' },
+    help: 'You can list multiple campsites and host events. TRA and a business registration document are required.' },
   { key: 'airbnb', label: 'Airbnb', docs: 'none', multi: true, events: false,
     help: 'List as many Airbnb stays as you like, each with its own details. No business documents are needed beyond your verified ID. Airbnb hosts cannot host events or activities.' },
 ];

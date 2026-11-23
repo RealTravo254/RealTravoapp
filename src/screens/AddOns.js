@@ -10,13 +10,15 @@ import { abs, durationOf, hhmm, addDays, freeSlot, mainBlocks, addonClashes, ove
 import { choosePayment } from '../lib/payments';
 import { C } from '../lib/theme';
 import ListingInfoModal from '../components/ListingInfoModal';
+import { nearbyAvailableListings } from '../lib/nearbyAvailability';
 
 // Last step (also reachable from My Trips): stopovers, stays, activities and events.
 // No pickup here: pickup, drop-off and return belong to the main booking only.
 const GROUPS = {
-  all: { label: '🌍 All', cats: ['hotel', 'campsite', 'attraction', 'airbnb', 'activity', 'event', 'guide'] },
+  all: { label: '🌍 All', cats: ['hotel', 'resort', 'campsite', 'attraction', 'airbnb', 'activity', 'event', 'guide'] },
   stopover: { label: '🛑 Stopover', cats: ['attraction', 'activity', 'campsite'] },
-  stay: { label: '🛏️ Stay', cats: ['hotel', 'campsite', 'airbnb'] },
+  stay: { label: '🛏️ Stays & accommodation', cats: ['hotel', 'resort', 'campsite', 'airbnb', 'attraction'] },
+  facilities: { label: '🏕️ Facilities', cats: ['attraction', 'activity'] },
   activities: { label: '🎯 Activities & events', cats: ['activity', 'attraction', 'guide', 'event'] },
 };
 const GAP = 30; // minutes between add-ons
@@ -36,29 +38,35 @@ export default function AddOns({ route, navigation }) {
   const [group, setGroup] = useState('all'); const [near, setNear] = useState(null); const [chosen, setChosen] = useState({}); const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(0); const [hasMore, setHasMore] = useState(false); const [detailItem, setDetailItem] = useState(null);
   useEffect(() => { let active = true; setNear(null);
-    supabase.rpc('nearby_listings', { p_lat: listing.lat, p_lng: listing.lng, p_radius_km: 40, p_exclude: listing.category, p_categories: GROUPS[group].cats.filter((c) => c !== listing.category), lim: (page + 1) * PAGE_SIZE + 1 })
-      .then(({ data, error }) => {
-        if (error) throw error;
+    nearbyAvailableListings({ listing, categories: GROUPS[group].cats, date, guests, page, pageSize: PAGE_SIZE, group })
+      .then(({ listings, hasMore: more }) => {
         if (!active) return;
-        const all = data || []; const start = page * PAGE_SIZE;
-        setNear(all.slice(start, start + PAGE_SIZE)); setHasMore(all.length > start + PAGE_SIZE);
+        setNear(listings); setHasMore(more);
       }).catch((error) => { console.warn('Could not load nearby add-ons:', error.message); if (active) { setNear([]); setHasMore(false); } });
     return () => { active = false; };
-  }, [group, page]);
+  }, [listing, group, page, date, guests]);
 
   const blockOf = (c) => { const s = abs(c.date, c.time); return { label: `“${c.l.title}”`, s, e: s + durationOf(c.info || c.l) }; };
 
   const toggle = async (l) => {
     if (chosen[l.id]) return setChosen(({ [l.id]: _, ...rest }) => rest);           // untick
-    const { data: prices } = await supabase.from('listing_prices').select('*').eq('listing_id', l.id);
+    const { data: prices, error: priceError } = await supabase.from('listing_prices').select('*').eq('listing_id', l.id);
+    if (priceError) return Alert.alert('Could not load add-on', priceError.message);
     const req = (prices || []).filter((p) => !p.is_optional); const picked = req.length ? req : (prices || []).sort((a, b) => a.price - b.price).slice(0, 1);
-    const { data: info } = await supabase.from('listings').select('id,title,category,opening_hours,event_date,schedule_type,starts_on,ends_on,open_time,duration_minutes').eq('id', l.id).single();
+    const { data: info, error: infoError } = await supabase.from('listings').select('id,title,category,opening_hours,event_date,schedule_type,starts_on,ends_on,open_time,duration_minutes,accommodation_available').eq('id', l.id).single();
+    if (infoError) return Alert.alert('Could not load add-on', infoError.message);
     const ev = info && (info.category === 'event' || info.schedule_type === 'one_time') && info.event_date ? new Date(info.event_date) : null;
     const taken = Object.values(chosen).map(blockOf);        // only other add-ons matter
-    const slot = ev ? { date: ymd(ev), time: hhmm(ev.getHours() * 60 + ev.getMinutes()) } : (freeSlot(taken, date, lastDay, durationOf(info || l), GAP) || { date, time: '09:00' });
-    setChosen((c) => ({ ...c, [l.id]: { l, info, items: picked, date: slot.date, time: slot.time, nights: 1, fixed: !!ev } }));
+    const slot = ev ? { date: ymd(ev), time: hhmm(ev.getHours() * 60 + ev.getMinutes()) } : (freeSlot(taken, date, date, durationOf(info || l), GAP) || { date, time: '09:00' });
+    const isStay = STAY.includes(l.category) || info.accommodation_available;
+    const optional = (prices || []).filter((p) => p.is_optional && (isStay ? p.kind === 'room' : ['entrance', 'ticket', 'facility', 'activity'].includes(p.kind)));
+    setChosen((c) => ({ ...c, [l.id]: { l, info, items: picked, optional, date, time: slot.time, nights: 1, fixed: !!ev } }));
   };
   const setField = (id, patch) => setChosen((c) => ({ ...c, [id]: { ...c[id], ...patch } }));
+  const togglePrice = (id, price) => setChosen((c) => {
+    const item = c[id]; const selected = item.items.some((p) => p.id === price.id);
+    return { ...c, [id]: { ...item, items: selected ? item.items.filter((p) => p.id !== price.id) : [...item.items, price] } };
+  });
   const lineTotal = (c) => c.items.reduce((s, p) => s + Number(p.price) * (p.unit === 'per_group' ? 1 : guests) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1), 0);
   const extras = Object.values(chosen);
   const extrasTotal = extras.reduce((s, c) => s + lineTotal(c), 0);
@@ -69,7 +77,7 @@ export default function AddOns({ route, navigation }) {
   const problems = [];
   extras.forEach((c) => {
     const p = c.info ? scheduleProblem(c.info, c.date, c.time) : null; if (p) problems.push(`${c.l.title}: ${p}`);
-    if (c.date < date || c.date > lastDay) problems.push(`${c.l.title}: choose a date between ${date} and ${lastDay}.`);
+    if (c.date !== date) problems.push(`${c.l.title}: add-ons must use the main booking date (${date}).`);
   });
   addonClashes(baseBlocks, extras.map(blockOf), GAP).forEach((m) => problems.push(m));
 
@@ -83,7 +91,8 @@ export default function AddOns({ route, navigation }) {
     try {
       const toCheck = [...(draft ? [{ l: listing, from: date, to: endDate }] : []), ...extras.map((c) => ({ l: c.l, from: c.date, to: c.nights > 1 ? addDays(c.date, c.nights - 1) : c.date }))];
       for (const x of toCheck) {
-        const { data: left } = await supabase.rpc('get_availability', { p_listing: x.l.id, p_start: x.from, p_end: x.to });
+        const { data: left, error: availabilityError } = await supabase.rpc('get_availability', { p_listing: x.l.id, p_start: x.from, p_end: x.to });
+        if (availabilityError) throw availabilityError;
         if (typeof left === 'number' && left < guests) throw new Error(`${x.l.title} has only ${left} places left for those dates.`);
       }
       let pkg = null;
@@ -130,7 +139,7 @@ export default function AddOns({ route, navigation }) {
       <Muted style={{ marginHorizontal: 12 }}>Main booking: {listing.title} on {date} at {mainTime}{t ? `, pickup at ${t.pickupTime}` : ''}{t?.returnDate ? `, return ${t.returnDate} at ${t.returnTime}` : ''}. Tick what you want and untick to remove. ℹ️ Add-ons can happen during your main booking (for example, going out while you stay), but not at the same time as each other. Leave {GAP} minutes between add-ons.</Muted>
 
       <View style={{ flexDirection: 'row', paddingHorizontal: 12, flexWrap: 'wrap' }}>{Object.entries(GROUPS).map(([k, g]) => <Chip key={k} label={g.label} active={group === k} onPress={() => { setGroup(k); setPage(0); }} />)}</View>
-      <Muted style={{ marginHorizontal: 12, marginTop: 6 }}>Within 40 km of {listing.title}. Dates from {date} to {lastDay}.</Muted>
+      <Muted style={{ marginHorizontal: 12, marginTop: 6 }}>Within 40 km of {listing.title}. Available places are checked for {date}; add-on dates are locked to this booking day.</Muted>
       {near === null ? <Loader /> : near.length === 0 ? <Muted style={{ textAlign: 'center', margin: 20 }}>Nothing nearby yet.</Muted> :
         near.map((l) => { const c = chosen[l.id]; return (
           <Card key={l.id} style={{ padding: 10, borderWidth: 2, borderColor: c ? C.primary : C.border }}>
@@ -140,11 +149,14 @@ export default function AddOns({ route, navigation }) {
             </TouchableOpacity>
             {c && <>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <DateField style={{ flex: 1, marginRight: 8 }} value={new Date(c.date + 'T12:00:00')} disabled={c.fixed} suffix={c.fixed ? ' (event date)' : ''}
-                  minimumDate={new Date(date + 'T00:00:00')} maximumDate={new Date(lastDay + 'T23:00:00')} onChange={(d) => setField(l.id, { date: ymd(d) })} />
+                <DateField style={{ flex: 1, marginRight: 8 }} value={new Date(c.date + 'T12:00:00')} disabled suffix=" (booking date)" />
                 {c.fixed ? <Text style={{ fontWeight: '700' }}>🕒 {c.time}</Text> : <TimeField value={c.time} onChange={(x) => setField(l.id, { time: x })} />}
               </View>
-              {STAY.includes(l.category) && <Stepper label="Nights" value={c.nights} onChange={(n) => setField(l.id, { nights: n })} min={1} max={30} />}
+              {(STAY.includes(l.category) || c.info?.accommodation_available) && <Stepper label="Nights" value={c.nights} onChange={(n) => setField(l.id, { nights: n })} min={1} max={30} />}
+              {!!c.optional.length && <View style={{ marginTop: 6 }}>
+                <Muted>Optional rooms, facilities and activities</Muted>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{c.optional.map((p) => <Chip key={p.id} label={`${c.items.some((item) => item.id === p.id) ? '✓ ' : '+ '}${p.label} · ${formatMoney(p.price)}`} active={c.items.some((item) => item.id === p.id)} onPress={() => togglePrice(l.id, p)} />)}</View>
+              </View>}
               <Muted>{formatMoney(lineTotal(c))} for {guests} {guests === 1 ? 'guest' : 'guests'}</Muted>
               {overlapsBase(blockOf(c), baseBlocks) && <Muted style={{ color: C.ok }}>ℹ️ This is during your main booking. That's allowed.</Muted>}
             </>}
@@ -164,6 +176,7 @@ export default function AddOns({ route, navigation }) {
         {draft && <Text>Main booking: {formatMoney(draft.total)}</Text>}
         {transferPrice > 0 && <Text>Transfer: {formatMoney(transferPrice)}</Text>}
         <Text>Add-ons: {formatMoney(extrasTotal)}</Text>
+        <Muted>Transport and pickup are optional; you can book without them.</Muted>
         <Text style={{ fontSize: 22, fontWeight: '800', marginVertical: 6 }}>Total: {formatMoney(grand)}</Text>
         <Btn title="Pay now" onPress={() => save(true)} disabled={busy || problems.length > 0} />
         <Btn kind="ghost" title="Pay later (saved in My Trips)" onPress={() => save(false)} disabled={busy || problems.length > 0} />

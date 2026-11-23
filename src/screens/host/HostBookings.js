@@ -200,6 +200,7 @@ export default function HostBookings({ navigation }) {
             <Line icon="calendar-outline">{sameDay ? fmt(b.start_date) : `${fmt(b.start_date)} → ${fmt(b.end_date)}`}</Line>
             <Line icon="people-outline">{b.adults ?? b.guests} adults{b.children ? ` + ${b.children} children` : ''}</Line>
             {!!b.start_time && <Line icon="time-outline">{b.start_time.slice(0, 5)}</Line>}
+            {!!b.contact_phone && <Line icon="call-outline">{b.contact_phone}</Line>}
             {!!b.contact_email && <Line icon="mail-outline">{b.contact_email}</Line>}
           </View>
           <View style={s.totalBox}>

@@ -233,7 +233,7 @@ create table listings (
   daily_limit int check (daily_limit is null or daily_limit > 0),
   verified_once boolean not null default false,
   created_at timestamptz not null default now(), updated_at timestamptz not null default now());
-create unique index one_listing_per_provider on listings(provider_id, category) where category in ('hotel','campsite','attraction') and deleted_at is null;
+create index listings_provider_category_active_idx on listings(provider_id, category) where deleted_at is null;
 create index listings_search on listings(category, country, region, status);
 create index listings_title_trgm on listings using gin (title extensions.gin_trgm_ops);
 
@@ -244,10 +244,16 @@ begin
   if p.user_id <> new.owner_id then raise exception 'Provider mismatch'; end if;
   if not admin_can_manage('listings') then
     if p.verification <> 'approved' then raise exception 'Your provider registration is not verified yet'; end if;
-    if new.category in ('hotel','campsite','attraction','guide') and p.category <> new.category then raise exception 'Your registration is for %, not %', p.category, new.category; end if;
-    if new.category in ('hotel','campsite','attraction','guide') and (p.tra_number is null or p.registration_number is null or p.registration_document_url is null) then
+    if new.category in ('hotel','resort') and p.category <> 'hotel' then raise exception 'Your registration is for %, not %', p.category, new.category; end if;
+    if new.category in ('campsite','attraction') and p.category <> new.category then raise exception 'Your registration is for %, not %', p.category, new.category; end if;
+    if new.category = 'guide' and p.category not in ('activity','guide') then raise exception 'Your registration is for %, not %', p.category, new.category; end if;
+    if new.category in ('hotel','resort','campsite','attraction') and (p.tra_number is null or p.registration_number is null or p.registration_document_url is null) then
       raise exception 'TRA number, registration number and registration document are required for %', new.category; end if;
-    if new.category in ('airbnb','activity','event') and not o.is_bnb_verified then raise exception 'Only verified hosts can list %', new.category; end if;
+    if new.category = 'guide' and p.category = 'guide' and (p.tra_number is null or p.registration_number is null or p.registration_document_url is null) then
+      raise exception 'TRA number, registration number and registration document are required for %', new.category; end if;
+    if new.category = 'guide' and p.category = 'activity' and (p.registration_number is null or p.registration_document_url is null) then
+      raise exception 'A business registration number and document are required for guided tours'; end if;
+    if new.category in ('airbnb','activity','event','guide') and not o.is_bnb_verified then raise exception 'Only verified hosts can list %', new.category; end if;
   end if;
   new.updated_at := now(); return new; end $$;
 create trigger listings_rules before insert or update on listings for each row execute function enforce_listing_rules();
@@ -255,9 +261,8 @@ create trigger listings_rules before insert or update on listings for each row e
 create or replace function lock_listing_core() returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if auth.uid() is not null and not admin_can_manage('listings') then
-    if old.verified_once and (new.category is distinct from old.category or new.location_name is distinct from old.location_name
-       or new.lat is distinct from old.lat or new.lng is distinct from old.lng or new.google_place_id is distinct from old.google_place_id) then
-      raise exception 'Category and location cannot be changed after the listing was verified'; end if;
+    if old.verified_once and new.category is distinct from old.category then
+      raise exception 'Category cannot be changed after the listing was verified'; end if;
     if new.provider_id <> old.provider_id or new.owner_id <> old.owner_id then raise exception 'Owner cannot change'; end if;
     new.verified_once := old.verified_once;
     if new.status = 'approved' and (old.status not in ('approved','hidden') or not old.verified_once) then raise exception 'Only admin can approve a listing'; end if;
@@ -507,7 +512,7 @@ begin select (exists(select 1 from bookings where listing_id = p_listing and use
   select * into c from listing_contacts where listing_id = p_listing; return c; end $$;
 
 create or replace function set_listing_visibility(p_listing uuid, p_visible boolean) returns void language plpgsql security definer set search_path = public as $$
-begin update listings set status = case when p_visible then 'approved' else 'hidden' end where id = p_listing and owner_id = auth.uid() and status in ('approved','hidden'); end $$;
+begin update listings set status = case when p_visible then 'approved'::review_status else 'hidden'::review_status end where id = p_listing and owner_id = auth.uid() and status in ('approved','hidden'); end $$;
 
 create or replace function get_availability(p_listing uuid, p_start date, p_end date) returns int language plpgsql stable security definer set search_path = public as $$
 declare lim int; d date; used int; worst int;
@@ -816,3 +821,6 @@ grant execute on function log_search(text), popular_searches(int), popular_locat
 -- ===== v13: Trip-based host payout batches and Wallet analytics.
 -- Apply supabase/app-update-13.sql after v11 and v12. Existing aggregate payouts are not backfilled;
 -- booking-level payout tracking begins at the migration timestamp. =====
+
+-- ===== v15: Allow multiple provider listings, editable verified locations, guided tours, and enum-safe visibility updates.
+-- Apply supabase/app-update-15.sql to an existing project. =====

@@ -84,10 +84,9 @@ export default function BookingScreen({ route, navigation }) {
   const [contactPhone, setContactPhone] = useState('');
   const [left, setLeft] = useState(undefined);
 
-  // pickup / drop-off / return: main booking only. It is the last section, unticked and closed
-  // (guides need a meeting point, and a pickup chosen earlier opens it).
-  const needsMeeting = true; const mustMeet = listing.category === 'guide';
-  const [transfer, setTransfer] = useState(mustMeet || !!pre?.loc); const [open, setOpen] = useState(!!pre?.loc);
+  // Pickup / drop-off / return belong to the main booking only; the section stays closed unless preselected.
+  const needsMeeting = true;
+  const [transfer, setTransfer] = useState(!!pre?.loc); const [open, setOpen] = useState(!!pre?.loc);
   const [tripType, setTripType] = useState('oneway');
   const [pickupLoc, setPickupLoc] = useState(pre?.loc || null); const [pickupTime, setPickupTime] = useState(pre?.time || null);
   const [sameDrop, setSameDrop] = useState(true); const [dropLoc, setDropLoc] = useState(null);
@@ -120,7 +119,7 @@ export default function BookingScreen({ route, navigation }) {
   const onMap = async (set, title) => { const r = await pickLocation(navigation, title); if (r) set(r); };
 
   const v = vehicles.find((x) => x.id === vid && x.max_passengers >= guests);
-  const needVehicle = !mustMeet;                        // guides can meet you without a paid vehicle
+  const needVehicle = true;
   const tprice = transfer && v && km != null ? transferPrice(v, km) + (isReturn ? transferPrice(v, sameDrop ? km : (kmDrop ?? km)) : 0) : 0;
   const grandTotal = calc.total + tprice;
 
@@ -278,10 +277,10 @@ export default function BookingScreen({ route, navigation }) {
           {needsMeeting && (
             <Section
               icon="car-outline"
-              title={mustMeet ? 'Pickup and drop-off (required)' : 'Pickup and drop-off'}
-              hint={transfer ? 'Choose pickup only or pickup with a return drop-off.' : 'Optional. Turn on to choose a pickup or drop-off.'}
+              title="Pickup and drop-off (optional)"
+              hint={transfer ? 'Choose pickup only or pickup with a return drop-off.' : 'Transport is optional. You can continue without choosing pickup.'}
               style={transfer ? { borderColor: C.primary, borderWidth: 1.5 } : null}
-              right={<Switch value={transfer} disabled={mustMeet} onValueChange={(on) => { setTransfer(on); setOpen(on); }} trackColor={{ true: C.primary }} />}
+              right={<Switch value={transfer} onValueChange={(on) => { setTransfer(on); setOpen(on); }} trackColor={{ true: C.primary }} />}
             >
               {transfer && (
                 <TouchableOpacity onPress={() => setOpen(!open)} activeOpacity={0.7} style={s.collapse}>

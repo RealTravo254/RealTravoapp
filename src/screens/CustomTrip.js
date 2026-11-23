@@ -557,6 +557,7 @@ export default function CustomTrip({ navigation }) {
         {step === 4 && <>
           <Text style={{ fontSize: 18, fontWeight: '800', marginTop: 8 }}>Review and pay</Text>
           <Muted>{startDay} → {endDay} · {adults} adults{children ? ` · ${children} children` : ''} · {people} travelers</Muted>
+          <Muted>Transport and pickup are optional. You can book this custom trip without them.</Muted>
           {items.map((c) => <Card key={c.l.id} style={{ marginHorizontal: 0 }}><View style={{ flexDirection: 'row' }}>
             <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>{c.l.title}</Text><Muted>{CAT_BADGE[c.l.category] || c.l.category} · {c.date} · {c.time}{isStay(c) ? ` · ${c.nights} night(s)` : ''}</Muted>
               <Muted>{c.adults} adults{c.children ? ` · ${c.children} children` : ''}</Muted>

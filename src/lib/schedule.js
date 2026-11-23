@@ -3,7 +3,7 @@ export const dayNo = (s) => { const [y, m, d] = s.split('-').map(Number); return
 export const abs = (day, t) => dayNo(day) * 1440 + toMin(t);
 export const hhmm = (min) => `${String(Math.floor(min / 60) % 24).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 export const addDays = (s, n) => { const [y, m, d] = s.split('-').map(Number); const x = new Date(Date.UTC(y, m - 1, d + n)); return x.toISOString().slice(0, 10); };
-export const STAY = ['hotel', 'campsite', 'airbnb'];
+export const STAY = ['hotel', 'resort', 'campsite', 'airbnb'];
 export const durationOf = (x) => Number(x?.duration_minutes) || (STAY.includes(x?.category) ? 60 : x?.category === 'event' ? 180 : 120);
 
 const clash = (a, b, pad = 0) => a.s < b.e + pad && b.s < a.e + pad;

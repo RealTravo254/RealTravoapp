@@ -16,12 +16,14 @@ import { choosePayment } from '../lib/payments';
 import { isValidContactPhone } from '../lib/phone';
 import { C } from '../lib/theme';
 import ListingInfoModal from '../components/ListingInfoModal';
+import { nearbyAvailableListings } from '../lib/nearbyAvailability';
 
 const GAP = 30; // minutes between add-ons
 const ADDON_PAGE_SIZE = 8;
 const GROUPS = {
-  all: { label: '🌍 All', cats: ['hotel', 'campsite', 'attraction', 'airbnb', 'activity', 'event', 'guide'] },
-  stay: { label: '🛏️ Stay', cats: ['hotel', 'campsite', 'airbnb'] },
+  all: { label: '🌍 All', cats: ['hotel', 'resort', 'campsite', 'attraction', 'airbnb', 'activity', 'event', 'guide'] },
+  stay: { label: '🛏️ Stays & accommodation', cats: ['hotel', 'resort', 'campsite', 'airbnb', 'attraction'] },
+  facilities: { label: '🏕️ Facilities', cats: ['attraction', 'activity'] },
   activities: { label: '🎯 Activities & events', cats: ['activity', 'attraction', 'guide', 'event'] },
 };
 
@@ -66,19 +68,16 @@ export default function BookingFormScreen({ route, navigation }) {
   })(); supabase.from('vehicles').select('*').eq('active', true).order('max_passengers').then(({ data }) => setVehicles(data || [])); }, [slug]);
 
   useEffect(() => { if (!l) return undefined; let active = true; setNear(null);
-    supabase.rpc('nearby_listings', { p_lat: l.lat, p_lng: l.lng, p_radius_km: 40, p_exclude: l.category, p_categories: GROUPS[group].cats.filter((c) => c !== l.category), lim: (addonPage + 1) * ADDON_PAGE_SIZE + 1 })
-      .then(({ data, error }) => {
-        if (error) throw error;
+    nearbyAvailableListings({ listing: l, categories: GROUPS[group].cats, date: ymd(date), guests, page: addonPage, pageSize: ADDON_PAGE_SIZE, group })
+      .then(({ listings, hasMore }) => {
         if (!active) return;
-        const all = data || []; const start = addonPage * ADDON_PAGE_SIZE;
-        setNear(all.slice(start, start + ADDON_PAGE_SIZE)); setAddonHasMore(all.length > start + ADDON_PAGE_SIZE);
+        setNear(listings); setAddonHasMore(hasMore);
       }).catch((error) => { console.warn('Could not load booking add-ons:', error.message); if (active) { setNear([]); setAddonHasMore(false); } });
     return () => { active = false; };
-  }, [l, group, addonPage]);
+  }, [l, group, addonPage, date, guests]);
 
   const isEvent = !!l && l.category === 'event' && !!l.event_date;
-  const needsMeeting = !!l && ['guide', 'activity', 'event'].includes(l.category); const mustMeet = !!l && l.category === 'guide';
-  useEffect(() => { if (mustMeet) setTransfer(true); }, [mustMeet]);
+  const needsMeeting = !!l && ['guide', 'activity', 'event'].includes(l.category);
   const isReturn = transfer && tripType === 'return';
   const startDay = ymd(date);
   const retDate = returnDate && returnDate >= date ? returnDate : date;
@@ -98,7 +97,7 @@ export default function BookingFormScreen({ route, navigation }) {
   /* ---------- totals ---------- */
   const mainTotal = Number(form.price) * guests;
   const v = vehicles.find((x) => x.id === vid && x.max_passengers >= guests);
-  const needVehicle = !mustMeet;
+  const needVehicle = true;
   const tprice = transfer && v && km != null ? transferPrice(v, km) + (isReturn ? transferPrice(v, sameDrop ? km : (kmDrop ?? km)) : 0) : 0;
   const lineTotal = (c) => c.items.reduce((s, p) => s + Number(p.price) * (p.unit === 'per_group' ? 1 : guests) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1), 0);
   const extras = Object.values(chosen);
@@ -123,7 +122,7 @@ export default function BookingFormScreen({ route, navigation }) {
   const blockOf = (c) => { const s = abs(c.date, c.time); return { label: `“${c.l.title}”`, s, e: s + durationOf(c.info || c.l) }; };
   extras.forEach((c) => {
     const p = c.info ? scheduleProblem(c.info, c.date, c.time) : null; if (p) problems.push(`${c.l.title}: ${p}`);
-    if (c.date < startDay || c.date > lastDay) problems.push(`${c.l.title}: choose a date between ${startDay} and ${lastDay}.`);
+    if (c.date !== startDay) problems.push(`${c.l.title}: add-ons must use the main booking date (${startDay}).`);
   });
   addonClashes(mb.blocks, extras.map(blockOf), GAP).forEach((m) => problems.push(m));   // add-ons only checked against each other
   const problem = problems[0];
@@ -131,15 +130,23 @@ export default function BookingFormScreen({ route, navigation }) {
   /* ---------- add-on tick / untick ---------- */
   const toggle = async (x) => {
     if (chosen[x.id]) return setChosen(({ [x.id]: _, ...rest }) => rest);            // untick
-    const { data: prices } = await supabase.from('listing_prices').select('*').eq('listing_id', x.id);
+    const { data: prices, error: priceError } = await supabase.from('listing_prices').select('*').eq('listing_id', x.id);
+    if (priceError) return Alert.alert('Could not load add-on', priceError.message);
     const req = (prices || []).filter((p) => !p.is_optional); const picked = req.length ? req : (prices || []).sort((a, b) => a.price - b.price).slice(0, 1);
-    const { data: info } = await supabase.from('listings').select('id,title,category,opening_hours,event_date,schedule_type,starts_on,ends_on,open_time,duration_minutes').eq('id', x.id).single();
+    const { data: info, error: infoError } = await supabase.from('listings').select('id,title,category,opening_hours,event_date,schedule_type,starts_on,ends_on,open_time,duration_minutes,accommodation_available').eq('id', x.id).single();
+    if (infoError) return Alert.alert('Could not load add-on', infoError.message);
     const ev = info && (info.category === 'event' || info.schedule_type === 'one_time') && info.event_date ? new Date(info.event_date) : null;
     const taken = Object.values(chosen).map(blockOf);                                 // only other add-ons matter
-    const slot = ev ? { date: ymd(ev), time: hhmm(ev.getHours() * 60 + ev.getMinutes()) } : (freeSlot(taken, startDay, lastDay, durationOf(info || x), GAP) || { date: startDay, time: '09:00' });
-    setChosen((c) => ({ ...c, [x.id]: { l: x, info, items: picked, date: slot.date, time: slot.time, nights: 1, fixed: !!ev } }));
+    const slot = ev ? { date: ymd(ev), time: hhmm(ev.getHours() * 60 + ev.getMinutes()) } : (freeSlot(taken, startDay, startDay, durationOf(info || x), GAP) || { date: startDay, time: '09:00' });
+    const isStay = STAY.includes(x.category) || info.accommodation_available;
+    const optional = (prices || []).filter((p) => p.is_optional && (isStay ? p.kind === 'room' : ['entrance', 'ticket', 'facility', 'activity'].includes(p.kind)));
+    setChosen((c) => ({ ...c, [x.id]: { l: x, info, items: picked, optional, date: startDay, time: slot.time, nights: 1, fixed: !!ev } }));
   };
   const setField = (id, patch) => setChosen((c) => ({ ...c, [id]: { ...c[id], ...patch } }));
+  const togglePrice = (id, price) => setChosen((c) => {
+    const item = c[id]; const selected = item.items.some((p) => p.id === price.id);
+    return { ...c, [id]: { ...item, items: selected ? item.items.filter((p) => p.id !== price.id) : [...item.items, price] } };
+  });
 
   /* ---------- save ---------- */
   const save = async (payNow) => {
@@ -150,7 +157,8 @@ export default function BookingFormScreen({ route, navigation }) {
     try {
       const checks = [{ l, from: startDay, to: startDay }, ...extras.map((c) => ({ l: c.l, from: c.date, to: c.nights > 1 ? addDays(c.date, c.nights - 1) : c.date }))];
       for (const x of checks) {
-        const { data: left } = await supabase.rpc('get_availability', { p_listing: x.l.id, p_start: x.from, p_end: x.to });
+        const { data: left, error: availabilityError } = await supabase.rpc('get_availability', { p_listing: x.l.id, p_start: x.from, p_end: x.to });
+        if (availabilityError) throw availabilityError;
         if (typeof left === 'number' && left < guests) throw new Error(`${x.l.title} has only ${left} places left for those dates.`);
       }
       const drop = isReturn ? (sameDrop ? pickupLoc : dropLoc) : null;
@@ -220,9 +228,9 @@ export default function BookingFormScreen({ route, navigation }) {
 
       {needsMeeting && (
         <Card style={{ marginHorizontal: 0, marginTop: 10 }}>
-          <Check on={transfer} disabled={mustMeet} onPress={() => setTransfer(!transfer)}>
-            <Text style={{ fontWeight: '800' }}>🚐 {mustMeet ? 'Pickup / drop-off (required)' : 'Add pickup or drop-off'}</Text>
-            <Muted>{transfer ? 'Choose pickup only or pickup with return drop-off.' : 'Optional — select this if you need transport.'}</Muted>
+          <Check on={transfer} onPress={() => setTransfer(!transfer)}>
+            <Text style={{ fontWeight: '800' }}>🚐 Add pickup or drop-off (optional)</Text>
+            <Muted>{transfer ? 'Choose pickup only or pickup with return drop-off.' : 'Transport is optional. You can continue without pickup.'}</Muted>
           </Check>
           {transfer && <TouchableOpacity onPress={() => setTransferOpen((open) => !open)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10, borderRadius: 10, backgroundColor: '#F2F8F5' }}>
             <Text style={{ color: C.primary, fontWeight: '700' }}>{transferOpen ? 'Hide transport details' : pickupLoc?.label || 'Choose pickup and drop-off details'}</Text>
@@ -253,7 +261,7 @@ export default function BookingFormScreen({ route, navigation }) {
       )}
 
       <Label>Add more to your trip (optional)</Label>
-      <Muted>Tick to add, untick to remove. ℹ️ Add-ons can happen during your main booking, but not at the same time as each other. Leave {GAP} minutes between add-ons.</Muted>
+      <Muted>Tick to add, untick to remove. Available add-ons are checked for {startDay}, and their date is locked to the main booking day. Leave {GAP} minutes between add-on activities.</Muted>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 }}>{Object.entries(GROUPS).map(([k, g]) => <Chip key={k} label={g.label} active={group === k} onPress={() => { setGroup(k); setAddonPage(0); }} />)}</View>
       {near === null ? <Loader /> : near.length === 0 ? <Muted style={{ textAlign: 'center', margin: 16 }}>Nothing nearby yet.</Muted> :
         near.map((x) => { const c = chosen[x.id]; return (
@@ -264,11 +272,14 @@ export default function BookingFormScreen({ route, navigation }) {
             </TouchableOpacity>
             {c && <>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <DateField style={{ flex: 1, marginRight: 8 }} value={new Date(c.date + 'T12:00:00')} disabled={c.fixed} suffix={c.fixed ? ' (event date)' : ''}
-                  minimumDate={new Date(startDay + 'T00:00:00')} maximumDate={new Date(lastDay + 'T23:00:00')} onChange={(d) => setField(x.id, { date: ymd(d) })} />
+                <DateField style={{ flex: 1, marginRight: 8 }} value={new Date(c.date + 'T12:00:00')} disabled suffix=" (booking date)" />
                 {c.fixed ? <Text style={{ fontWeight: '700' }}>🕒 {c.time}</Text> : <TimeField value={c.time} onChange={(tm) => setField(x.id, { time: tm })} />}
               </View>
-              {STAY.includes(x.category) && <Stepper label="Nights" value={c.nights} onChange={(n) => setField(x.id, { nights: n })} min={1} max={30} />}
+              {(STAY.includes(x.category) || c.info?.accommodation_available) && <Stepper label="Nights" value={c.nights} onChange={(n) => setField(x.id, { nights: n })} min={1} max={30} />}
+              {!!c.optional.length && <View style={{ marginTop: 6 }}>
+                <Muted>Optional rooms, facilities and activities</Muted>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{c.optional.map((p) => <Chip key={p.id} label={`${c.items.some((item) => item.id === p.id) ? '✓ ' : '+ '}${p.label} · ${formatMoney(p.price)}`} active={c.items.some((item) => item.id === p.id)} onPress={() => togglePrice(x.id, p)} />)}</View>
+              </View>}
               <Muted>{formatMoney(lineTotal(c))} for {guests} {guests === 1 ? 'guest' : 'guests'}</Muted>
               {overlapsBase(blockOf(c), mb.blocks) && <Muted style={{ color: C.ok }}>ℹ️ This is during your main booking. That's allowed.</Muted>}
             </>}
@@ -290,6 +301,7 @@ export default function BookingFormScreen({ route, navigation }) {
       <View style={{ marginVertical: 10 }}>
         <Muted>Main booking: {formatMoney(mainTotal)}</Muted>
         {transfer ? <Muted>Transfer: {formatMoney(tprice)}</Muted> : null}
+        <Muted>Transport and pickup are optional; no pickup is required to book.</Muted>
         {extras.map((c) => <Muted key={c.l.id}>{c.l.title}: {formatMoney(lineTotal(c))}</Muted>)}
         <Text style={{ fontSize: 22, fontWeight: '800', marginTop: 6 }}>Total: {formatMoney(grand)}</Text>
       </View>
