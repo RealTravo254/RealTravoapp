@@ -2,7 +2,6 @@
 // Needs: npx expo install expo-image-picker
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from './supabase';
-import { withMediaCompressor } from './nativeMediaCompressor';
 
 const BUCKET = 'listing-photos';
 
@@ -24,13 +23,7 @@ export async function pickAndUploadPhotos(userId, { limit = 10, onStart, onProgr
   const urls = [];
   for (let i = 0; i < assets.length; i++) {
     const a = assets[i];
-    const compressedUri = await withMediaCompressor(({ Image }) => Image.compress(a.uri, {
-        compressionMethod: 'manual',
-        maxWidth: 1600,
-        maxHeight: 1200,
-        quality: 0.68,
-        output: 'jpg',
-      }));
+    const compressedUri = a.uri;
     const path = `${userId}/${Date.now()}-${i}.jpg`;
 
     const body = await fetch(compressedUri).then((r) => r.arrayBuffer());

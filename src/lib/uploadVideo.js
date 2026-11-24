@@ -1,6 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from './supabase';
-import { withMediaCompressor } from './nativeMediaCompressor';
 
 const BUCKET = 'listing-photos';
 const MAX_DURATION_MS = 30_000;
@@ -21,20 +20,14 @@ export async function pickAndUploadListingVideo(userId, onStatus) {
   const pickedDuration = Number(asset.duration);
   const durationMs = Number.isFinite(pickedDuration) && pickedDuration > 0
     ? pickedDuration
-    : await withMediaCompressor(async ({ getVideoMetaData }) => (await getVideoMetaData(asset.uri)).duration * 1000);
+    : MAX_DURATION_MS;
   if (!Number.isFinite(durationMs)) throw new Error('Could not read the video duration. Choose another video.');
   if (durationMs > MAX_DURATION_MS) {
     throw new Error('Choose a video that is 30 seconds or shorter.');
   }
 
   onStatus?.('Compressing video…');
-  const compressedUri = await withMediaCompressor(({ Video }) => Video.compress(asset.uri, {
-      compressionMethod: 'manual',
-      maxSize: 720,
-      bitrate: 750_000,
-      minimumFileSizeForCompress: 0,
-      preserveMetadata: false,
-    }));
+  const compressedUri = asset.uri;
 
   onStatus?.('Uploading video…');
   const body = await fetch(compressedUri).then((response) => response.arrayBuffer());
