@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 
 const cacheKey = (userId) => `checkin-cache:${userId}`;
 const queueKey = (userId) => `checkin-queue:${userId}`;
-const CHECKIN_CATEGORIES = ['hotel', 'campsite', 'event', 'attraction'];
+const CHECKIN_CATEGORIES = ['hotel', 'campsite', 'event'];
 
 const readJson = async (key, fallback) => {
   const raw = await AsyncStorage.getItem(key);

@@ -21,10 +21,10 @@ import { nearbyAvailableListings } from '../lib/nearbyAvailability';
 const GAP = 30; // minutes between add-ons
 const ADDON_PAGE_SIZE = 8;
 const GROUPS = {
-  all: { label: '🌍 All', cats: ['hotel', 'resort', 'campsite', 'attraction', 'airbnb', 'activity', 'event', 'guide'] },
-  stay: { label: '🛏️ Stays & accommodation', cats: ['hotel', 'resort', 'campsite', 'airbnb', 'attraction'] },
-  facilities: { label: '🏕️ Facilities', cats: ['attraction', 'activity'] },
-  activities: { label: '🎯 Activities & events', cats: ['activity', 'attraction', 'guide', 'event'] },
+  all: { label: '🌍 All', cats: ['hotel', 'resort', 'campsite', 'airbnb', 'activity', 'event', 'guide'] },
+  stay: { label: '🛏️ Stays & accommodation', cats: ['hotel', 'resort', 'campsite', 'airbnb'] },
+  facilities: { label: '🏕️ Facilities', cats: ['activity'] },
+  activities: { label: '🎯 Activities & events', cats: ['activity', 'guide', 'event'] },
 };
 
 const Check = ({ on, onPress, disabled, children }) => (

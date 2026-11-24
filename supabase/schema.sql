@@ -4,7 +4,7 @@ create extension if not exists pgcrypto;
 create extension if not exists pg_trgm with schema extensions;
 
 create type user_role as enum ('user','provider','admin');
-create type listing_category as enum ('hotel','resort','campsite','attraction','airbnb','activity','event','guide');
+create type listing_category as enum ('hotel','resort','campsite','airbnb','activity','event','guide');
 create type review_status as enum ('draft','pending','approved','rejected','hidden');
 create type booking_status as enum ('pending','accepted','declined','cancelled','completed');
 create type payment_status as enum ('unpaid','paid','refunded');
@@ -246,9 +246,9 @@ begin
     if p.verification <> 'approved' then raise exception 'Your provider registration is not verified yet'; end if;
     if new.category = 'event' and p.category = 'airbnb' then raise exception 'Airbnb hosts cannot list events'; end if;
     if new.category in ('hotel','resort') and p.category <> 'hotel' then raise exception 'Your registration is for %, not %', p.category, new.category; end if;
-    if new.category in ('campsite','attraction') and p.category <> new.category then raise exception 'Your registration is for %, not %', p.category, new.category; end if;
+    if new.category = 'campsite' and p.category <> new.category then raise exception 'Your registration is for %, not %', p.category, new.category; end if;
     if new.category = 'guide' and p.category not in ('activity','guide') then raise exception 'Your registration is for %, not %', p.category, new.category; end if;
-    if new.category in ('hotel','resort','campsite','attraction') and (p.tra_number is null or p.registration_number is null or p.registration_document_url is null) then
+    if new.category in ('hotel','resort','campsite') and (p.tra_number is null or p.registration_number is null or p.registration_document_url is null) then
       raise exception 'TRA number, registration number and registration document are required for %', new.category; end if;
     if new.category = 'guide' and p.category = 'guide' and (p.tra_number is null or p.registration_number is null or p.registration_document_url is null) then
       raise exception 'TRA number, registration number and registration document are required for %', new.category; end if;

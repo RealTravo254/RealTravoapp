@@ -122,7 +122,7 @@ export default function BookingDetail({ route, navigation }) {
   const grand = pkg && pkg.total != null ? Number(pkg.total) : mainTotal + addonTotal + transfer;
   const paid = b.payment_status === 'paid';
   const unpaid = b.payment_status === 'unpaid' && b.status === 'pending';
-  const showQR = ['accepted', 'completed'].includes(b.status) && !b.checked_in_at && ['hotel', 'campsite', 'event', 'attraction'].includes(L.category) && !!b.qr_token;
+  const showQR = ['accepted', 'completed'].includes(b.status) && !b.checked_in_at && ['hotel', 'campsite', 'event'].includes(L.category) && !!b.qr_token;
   const hoursLeft = (new Date(`${String(b.start_date).slice(0, 10)}T${(b.start_time || '09:00').slice(0, 5)}:00`) - Date.now()) / 3600000;
 
   const openListing = (lid) => navigation.navigate('ListingDetail', { id: lid });

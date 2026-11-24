@@ -8,7 +8,7 @@ import CountryPicker from '../../components/CountryPicker';
 import { Btn, Card, Chip, H, Input, Label, Loader, Muted, Pager } from '../../components/ui';
 import { C } from '../../lib/theme';
 
-const CATEGORIES = ['hotel', 'campsite', 'attraction', 'activity'];
+const CATEGORIES = ['hotel', 'campsite', 'activity'];
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[char]));

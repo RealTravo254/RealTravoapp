@@ -16,9 +16,9 @@ import { C } from '../lib/theme';
 
 const GAP = 30;
 const GROUPS = {
-  all: { label: '🌍 All', cats: ['hotel', 'campsite', 'attraction', 'airbnb', 'activity', 'event', 'guide'] },
+  all: { label: '🌍 All', cats: ['hotel', 'campsite', 'airbnb', 'activity', 'event', 'guide'] },
   stay: { label: '🛏️ Stay', cats: ['hotel', 'campsite', 'airbnb'] },
-  activities: { label: '🎯 Activities & events', cats: ['activity', 'attraction', 'guide', 'event'] },
+  activities: { label: '🎯 Activities & events', cats: ['activity', 'guide', 'event'] },
 };
 
 // Unpaid + pending bookings: the user can change the date and ADD pickup, items and add-ons. Nothing can be reduced.

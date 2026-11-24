@@ -24,7 +24,7 @@ const TABS = [
 ];
 const WHEN = [['all', 'Any date'], ['month', 'This month'], ['range', 'Pick dates']];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const ICONS = { hotel: 'bed-outline', campsite: 'bonfire-outline', attraction: 'flag-outline', airbnb: 'home-outline', activity: 'walk-outline', event: 'ticket-outline', guide: 'person-outline' };
+const ICONS = { hotel: 'bed-outline', campsite: 'bonfire-outline', airbnb: 'home-outline', activity: 'walk-outline', event: 'ticket-outline', guide: 'person-outline' };
 const dayParts = (d) => { const x = new Date(`${String(d).slice(0, 10)}T12:00:00`); return { day: x.getDate(), mon: MONTHS[x.getMonth()] }; };
 const same = (a, b) => String(a).slice(0, 10) === String(b || a).slice(0, 10);
 

@@ -15,9 +15,9 @@ import { tr } from '../i18n';
 import { C } from '../lib/theme';
 
 const W = Dimensions.get('window').width;
-const BAR_KINDS = { hotel: ['room'], resort: ['room'], airbnb: ['room'], campsite: ['entrance'], attraction: ['entrance'], activity: ['activity', 'ticket'], event: ['ticket'], guide: ['guide'] };
+const BAR_KINDS = { hotel: ['room'], resort: ['room'], airbnb: ['room'], campsite: ['entrance'], activity: ['activity', 'ticket'], event: ['ticket'], guide: ['guide'] };
 const PER = { per_night: '/ night', per_person: '/ person', per_group: '/ group', per_day: '/ day' };
-const CAT_LABEL = { hotel: '🏨 Hotel', resort: '🌴 Resort', campsite: '⛺ Campsite', attraction: '🏞️ Attraction', airbnb: '🏡 Airbnb', activity: '🎯 Activity', guide: '🧭 Guide', event: '🎟️ Event' };
+const CAT_LABEL = { hotel: '🏨 Hotel', resort: '🌴 Resort', campsite: '⛺ Campsite', airbnb: '🏡 Airbnb', activity: '🎯 Activity', guide: '🧭 Guide', event: '🎟️ Event' };
 const ROOM_CATS = ['hotel', 'resort', 'airbnb'];
 
 function ListingVideo({ uri }) {
@@ -31,7 +31,7 @@ function barInfo(l, prices, formatMoney) {
   if (!pool.length) pool = prices;
   const min = pool.length ? Math.min(...pool.map((p) => Number(p.price))) : null;
   const per = PER[pool.find((p) => Number(p.price) === min)?.unit] || '';
-  if (['campsite', 'attraction'].includes(l.category)) {
+  if (l.category === 'campsite') {
     if (l.entrance_fee_free || min === 0) return { label: 'Entrance fee', value: 'Free', per: '' };
     return min === null ? { label: 'Entrance fee', value: 'On request', per: '' } : { label: 'Entrance from', value: formatMoney(min), per };
   }

@@ -8,7 +8,7 @@ import { CATS } from '../lib/categories';
 import { tr } from '../i18n';
 import { C } from '../lib/theme';
 
-const PIN = { hotel: 'blue', campsite: 'green', attraction: 'orange', airbnb: 'red', activity: 'violet', event: 'yellow', guide: 'cyan' };
+const PIN = { hotel: 'blue', campsite: 'green', airbnb: 'red', activity: 'violet', event: 'yellow', guide: 'cyan' };
 export default function MapScreen({ navigation }) {
   const [rows, setRows] = useState([]); const [cat, setCat] = useState(null);
   useEffect(() => {

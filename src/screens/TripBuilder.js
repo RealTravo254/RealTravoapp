@@ -61,7 +61,7 @@ export default function TripBuilder({ navigation }) {
       <Label>Start date</Label><DateField value={start} minimumDate={new Date()} onChange={setStart} />
       
       <Stepper label="Days" value={Number(days) || 1} onChange={(n) => setDays(String(n))} min={1} max={30} />
-      <Label>Add places (hotel, campsite, attraction, event…)</Label>
+      <Label>Add places (hotel, campsite, event…)</Label>
       <Input placeholder="Search…" value={q} onChangeText={(t) => { setQ(t); setPage(0); }} />
       {rows.slice(0, PAGE_SIZE).map(l => <Card key={l.id} onPress={() => add(l)} style={{ marginHorizontal: 0 }}><Text>＋ {l.title}</Text><Muted>{l.category} · {l.region}</Muted></Card>)}
       <Pager page={page} setPage={setPage} hasMore={rows.length > PAGE_SIZE} />

@@ -15,11 +15,11 @@ import { nearbyAvailableListings } from '../lib/nearbyAvailability';
 // Last step (also reachable from My Trips): stopovers, stays, activities and events.
 // No pickup here: pickup, drop-off and return belong to the main booking only.
 const GROUPS = {
-  all: { label: '🌍 All', cats: ['hotel', 'resort', 'campsite', 'attraction', 'airbnb', 'activity', 'event', 'guide'] },
-  stopover: { label: '🛑 Stopover', cats: ['attraction', 'activity', 'campsite'] },
-  stay: { label: '🛏️ Stays & accommodation', cats: ['hotel', 'resort', 'campsite', 'airbnb', 'attraction'] },
-  facilities: { label: '🏕️ Facilities', cats: ['attraction', 'activity'] },
-  activities: { label: '🎯 Activities & events', cats: ['activity', 'attraction', 'guide', 'event'] },
+  all: { label: '🌍 All', cats: ['hotel', 'resort', 'campsite', 'airbnb', 'activity', 'event', 'guide'] },
+  stopover: { label: '🛑 Stopover', cats: ['activity', 'campsite'] },
+  stay: { label: '🛏️ Stays & accommodation', cats: ['hotel', 'resort', 'campsite', 'airbnb'] },
+  facilities: { label: '🏕️ Facilities', cats: ['activity'] },
+  activities: { label: '🎯 Activities & events', cats: ['activity', 'guide', 'event'] },
 };
 const GAP = 30; // minutes between add-ons
 const PAGE_SIZE = 8;

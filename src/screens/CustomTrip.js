@@ -22,8 +22,8 @@ import { C } from '../lib/theme';
 const GAP = 30; // minutes between two activities
 const PAGE_SIZE = 8;
 const STAY = ['hotel', 'resort', 'campsite', 'airbnb'];
-const ACTIVITY_CATS = ['attraction', 'activity', 'guide'];
-const STAY_CATS = ['hotel', 'resort', 'campsite', 'attraction', 'airbnb', 'activity', 'guide'];
+const ACTIVITY_CATS = ['activity', 'guide'];
+const STAY_CATS = ['hotel', 'resort', 'campsite', 'airbnb', 'activity', 'guide'];
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SAFETY_NOTES = {
   activity: ['Check the activity requirements and conditions with the provider before you go.', 'Follow staff instructions and posted signs, and keep emergency contact details with you.'],
@@ -40,19 +40,17 @@ const CATS = {
   campsite: { label: '🏕️ Campsites', cats: ['campsite'] },
   airbnb: { label: '🏠 Airbnb', cats: ['airbnb'] },
   resort: { label: '🌴 Resorts', cats: ['resort'] },
-  attraction: { label: '🏞️ Attractions', cats: ['attraction'] },
-  stayAttraction: { label: '🏞️ Places with accommodation', cats: ['attraction'] },
   activity: { label: '🎯 Activities', cats: ['activity'] },
   guide: { label: '🧭 Guides', cats: ['guide'] },
   tour: { label: '🚌 Tours & trips', cats: ['activity', 'guide'], tour: true },
 };
 const CAT_BADGE = {
   hotel: '🏨 Hotel', resort: '🌴 Resort', campsite: '🏕️ Campsite', airbnb: '🏠 Airbnb',
-  attraction: '🏞️ Attraction', activity: '🎯 Activity', guide: '🧭 Guide',
+  activity: '🎯 Activity', guide: '🧭 Guide',
 };
 // The price rows that make up the "main" price of each category
 const MAIN_KINDS = {
-  resort: ['room'], attraction: ['entrance'],
+  resort: ['room'],
   activity: ['activity', 'ticket'], guide: ['guide'],
 };
 const STEPS = ['Where & when', 'Activities', 'Accommodation', 'Pickup', 'Review'];
@@ -160,7 +158,6 @@ export default function CustomTrip({ navigation }) {
       .eq('status', 'approved').is('deleted_at', null).in('category', categories);
     if (g.tour) q = q.eq('schedule_type', 'tour');
     if (accommodation) q = q.or('category.in.(hotel,resort,campsite,airbnb),accommodation_available.eq.true');
-    if (accommodation && cat === 'stayAttraction') q = q.eq('accommodation_available', true);
     if (country) q = q.eq('country', country);
     if (region) q = q.eq('region', region);
     // "id" is the tie-breaker so listings with the same title keep a stable order between pages
@@ -450,16 +447,16 @@ export default function CustomTrip({ navigation }) {
             <Text style={{ fontSize: 18, fontWeight: '800', marginTop: 8 }}>{step === 1 ? 'Activities, guided trips & facilities' : 'Accommodation'}</Text>
             <Muted>{step === 1
               ? `${startDay} → ${endDay} · ${people} travelers. Choose activities, tours, and on-site facilities.`
-              : 'Choose an available hotel, resort, campsite, Airbnb, or attraction with accommodation.'}</Muted>
+              : 'Choose an available hotel, resort, campsite, or Airbnb.'}</Muted>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8, marginBottom: 4 }}>
-              {(step === 1 ? ['all', 'attraction', 'activity', 'guide', 'tour'] : ['all', 'hotel', 'resort', 'campsite', 'airbnb', 'stayAttraction'])
+              {(step === 1 ? ['all', 'activity', 'guide', 'tour'] : ['all', 'hotel', 'resort', 'campsite', 'airbnb'])
                 .map((k) => <Chip key={k} label={k === 'all' ? (step === 1 ? 'All activities' : 'All accommodation') : CATS[k].label} active={cat === k} onPress={() => { setCat(k); setPage(0); }} />)}
             </ScrollView>
             {list !== null && <Muted style={{ marginBottom: 4 }}>{total} {total === 1 ? 'place' : 'places'} found</Muted>}
           </View>
 
           {list === null || (list.some((x) => STAY.includes(x.category) || x.accommodation_available) && stayAvailability === null) ? <Loader /> : listError ? <Card style={{ marginHorizontal: 0 }}><Muted>{listError}</Muted><Btn kind="ghost" title="Try again" onPress={() => setReload((n) => n + 1)} /></Card> : !visibleList?.length ? <Muted style={{ textAlign: 'center', margin: 24 }}>{list.length ? (step === 2 ? 'No accommodation is available for these dates and group size.' : 'No places are available for this trip.') : 'Nothing here yet. Try another region or category.'}</Muted> :
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>{visibleList.map((x) => { const c = chosen[x.id]; const from = cardFrom(x); const freeEntry = x.entrance_fee_free && x.category === 'attraction'; const cover = x.photos?.[0] || null; return (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>{visibleList.map((x) => { const c = chosen[x.id]; const from = cardFrom(x); const cover = x.photos?.[0] || null; return (
               <Card key={x.id} style={{ width: '49%', marginHorizontal: 0, padding: 0, overflow: 'hidden', borderWidth: 2, borderColor: c ? C.primary : '#E5E7EB', backgroundColor: c ? '#F3F9F5' : '#fff' }}>
                 <TouchableOpacity activeOpacity={0.85} onPress={() => openListing(x)}>
                 <View>
