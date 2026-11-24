@@ -231,6 +231,8 @@ create table listings (
   rating_avg numeric not null default 0, rating_count int not null default 0,
   event_date timestamptz, deleted_at timestamptz,
   daily_limit int check (daily_limit is null or daily_limit > 0),
+  meeting_point text, meeting_point_lat double precision, meeting_point_lng double precision,
+  pickup_from_guest_location boolean not null default false,
   verified_once boolean not null default false,
   created_at timestamptz not null default now(), updated_at timestamptz not null default now());
 create index listings_provider_category_active_idx on listings(provider_id, category) where deleted_at is null;

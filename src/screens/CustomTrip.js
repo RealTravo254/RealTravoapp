@@ -154,7 +154,7 @@ export default function CustomTrip({ navigation }) {
     const g = CATS[cat];
     const categories = cat === 'all' ? (accommodation ? STAY_CATS : ACTIVITY_CATS) : g.cats;
     let q = supabase.from('listings')
-      .select('id,title,category,region,country,location_name,lat,lng,photos,facilities,accommodation_available,rating_avg,rating_count,entrance_fee_free,schedule_type,listing_prices(id,kind,label,price,unit,audience,is_optional)', { count: 'exact' })
+      .select('id,title,category,region,country,location_name,lat,lng,photos,facilities,accommodation_available,rating_avg,rating_count,entrance_fee_free,schedule_type,starts_on,ends_on,event_date,open_time,pickup_times,meeting_point,meeting_point_lat,meeting_point_lng,pickup_from_guest_location,listing_prices(id,kind,label,price,unit,audience,is_optional)', { count: 'exact' })
       .eq('status', 'approved').is('deleted_at', null).in('category', categories);
     if (g.tour) q = q.eq('schedule_type', 'tour');
     if (accommodation) q = q.or('category.in.(hotel,resort,campsite,airbnb),accommodation_available.eq.true');
@@ -187,7 +187,13 @@ export default function CustomTrip({ navigation }) {
 
   const items = Object.values(chosen).sort((a, b) => ts(a.date, a.time) - ts(b.date, b.time));
   const visibleList = list && stayAvailability
-    ? list.filter((x) => !(STAY.includes(x.category) || x.accommodation_available) || stayAvailability[x.id] !== false)
+    ? list.filter((x) => {
+      if (STAY.includes(x.category) || x.accommodation_available) return stayAvailability[x.id] !== false;
+      if (x.schedule_type === 'tour' && x.starts_on) return x.starts_on <= endDay && (x.ends_on || x.starts_on) >= startDay;
+      if (x.schedule_type === 'one_time' && x.event_date) return ymd(new Date(x.event_date)) >= startDay && ymd(new Date(x.event_date)) <= endDay;
+      if (x.schedule_type === 'range' && x.starts_on && x.ends_on) return x.starts_on <= endDay && x.ends_on >= startDay;
+      return true;
+    })
     : list;
   const first = items[0]; const last = items[items.length - 1];
   const pickupDay = ymd(pickupDate || start);
@@ -212,7 +218,7 @@ export default function CustomTrip({ navigation }) {
     try {
       const [priceResult, listingResult] = await Promise.all([
         supabase.from('listing_prices').select('*').eq('listing_id', x.id),
-        supabase.from('listings').select('id,title,category,opening_hours,event_date,schedule_type,starts_on,ends_on,open_time,duration_minutes').eq('id', x.id).single(),
+        supabase.from('listings').select('id,title,category,opening_hours,event_date,schedule_type,starts_on,ends_on,open_time,duration_minutes,pickup_times,meeting_point,meeting_point_lat,meeting_point_lng,pickup_from_guest_location').eq('id', x.id).single(),
       ]);
       if (priceResult.error) throw priceResult.error;
       if (listingResult.error) throw listingResult.error;
@@ -228,7 +234,11 @@ export default function CustomTrip({ navigation }) {
       if (childOption && !picked.some((p) => p.audience === 'child')) picked.push(childOption);
       if (!picked.length && options.length) picked.push(options[0]);
       const extras = pr.filter((p) => p.is_optional && ['entrance', 'ticket', 'facility', 'activity'].includes(p.kind) && !options.some((option) => option.id === p.id));
-      const fixedDate = info.schedule_type === 'one_time' && info.event_date ? new Date(info.event_date) : null;
+      const fixedDate = info.schedule_type === 'one_time' && info.event_date
+        ? new Date(info.event_date)
+        : info.schedule_type === 'tour' && info.starts_on
+          ? new Date(`${info.starts_on}T${(info.open_time || '08:00').slice(0, 5)}:00`)
+          : null;
       let slot = fixedDate ? { date: ymd(fixedDate), time: `${String(fixedDate.getHours()).padStart(2, '0')}:${String(fixedDate.getMinutes()).padStart(2, '0')}` } : { date: startDay, time: stay ? '14:00' : '09:00' };
       if (!fixedDate) {
         outer: for (let d = 0; d < days; d++) for (let h = stay ? 14 : 8; h <= (stay ? 14 : 17); h++) {
@@ -236,7 +246,20 @@ export default function CustomTrip({ navigation }) {
           if (!clashes([...Object.values(chosen), cand]).length) { slot = { date: cand.date, time: cand.time }; break outer; }
         }
       }
-      setChosen((current) => ({ ...current, [x.id]: { l: x, info, options, extras, items: picked, stay, date: slot.date, time: slot.time, nights: 1, adults, children, fixed: !!fixedDate } }));
+      setChosen((current) => ({
+        ...current,
+        [x.id]: {
+          l: x, info, options, extras, items: picked, stay,
+          date: slot.date, time: slot.time, nights: 1, adults, children, fixed: !!fixedDate,
+          meetingMode: 'meet',
+          meetingPoint: info.meeting_point || x.location_name || x.region || '',
+          meetingLat: info.meeting_point_lat ?? null,
+          meetingLng: info.meeting_point_lng ?? null,
+          pickupPoint: null,
+          pickupTime: info.pickup_times?.[0] || '08:00',
+          meetingTime: slot.time,
+        },
+      }));
     } catch (error) {
       setEditingId(null); setOriginalItem(null);
       Alert.alert('Could not load booking options', error.message);
@@ -306,6 +329,10 @@ export default function CustomTrip({ navigation }) {
     const p = c.info ? scheduleProblem(c.info, c.date, c.time) : null; if (p) problems.push(`${c.l.title}: ${p}`);
     if (c.date < startDay || c.date > endDay) problems.push(`${c.l.title}: choose a date between ${startDay} and ${endDay}.`);
     if (isStay(c) && addDays(c.date, c.nights) > addDays(endDay, 1)) problems.push(`${c.l.title}: the stay goes past the end of your trip.`);
+    if (['guide', 'activity'].includes(c.l.category) && c.meetingMode === 'pickup' && !c.pickupPoint)
+      problems.push(`${c.l.title}: choose your pickup location.`);
+    if (['guide', 'activity'].includes(c.l.category) && c.meetingMode !== 'pickup' && !c.meetingPoint)
+      problems.push(`${c.l.title}: choose a meeting point.`);
   });
   const pickupProblems = [];
   if (mode !== 'none') {
@@ -377,8 +404,14 @@ export default function CustomTrip({ navigation }) {
         const guests = c.adults + c.children;
         const total = lineTotal(c, c.adults, c.children); const stay = isStay(c);
         const b = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: c.l.id, package_id: pkgId, guests, start_date: c.date, end_date: stay ? addDays(c.date, c.nights - 1) : c.date,
-          adults: c.adults, children: c.children, nights: stay ? c.nights : 1, start_time: c.time + ':00', contact_phone: phoneForBooking, contact_email: bookingEmail, trip_type: mode === 'none' ? null : mode,
-          pickup_location: pickup?.label || null, pickup_lat: pickup?.lat || null, pickup_lng: pickup?.lng || null, pickup_time: mode !== 'none' ? pickupTime + ':00' : null,
+          adults: c.adults, children: c.children, nights: stay ? c.nights : 1,
+          contact_phone: phoneForBooking, contact_email: bookingEmail, trip_type: mode === 'none' ? null : mode,
+          pickup_location: c.meetingMode === 'pickup' ? c.pickupPoint?.label || null : (c.meetingPoint || null),
+          pickup_lat: c.meetingMode === 'pickup' ? c.pickupPoint?.lat ?? null : c.meetingLat,
+          pickup_lng: c.meetingMode === 'pickup' ? c.pickupPoint?.lng ?? null : c.meetingLng,
+          pickup_time: c.meetingMode === 'pickup' ? (c.pickupTime || c.time) + ':00' : c.time + ':00',
+          start_time: c.meetingMode === 'pickup' ? (c.pickupTime || c.time) + ':00' : (c.meetingTime || c.time) + ':00',
+          meeting_point: c.meetingMode === 'pickup' ? (c.pickupPoint?.label || null) : c.meetingPoint,
           return_date: isReturn ? returnDay : null, return_time: isReturn ? returnTime + ':00' : null, subtotal: total, total }).select().single();
         if (b.error) throw b.error;
         if (c.items.length) {
@@ -617,6 +650,30 @@ export default function CustomTrip({ navigation }) {
               </View>
               {editorItem.stay && <Stepper label="Nights" value={editorItem.nights} onChange={(n) => setField(editingId, { nights: n })} min={1} max={30} />}
             </Card>
+            {['guide', 'activity'].includes(editorItem.l.category) && <Card style={{ marginHorizontal: 0 }}>
+              <Text style={{ fontWeight: '800', marginBottom: 6 }}>Meeting point and time</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                <Chip label="Meet at host point" active={editorItem.meetingMode !== 'pickup'} onPress={() => setField(editingId, { meetingMode: 'meet' })} />
+                {editorItem.info?.pickup_from_guest_location && <Chip label="Pickup from my location" active={editorItem.meetingMode === 'pickup'} onPress={() => setField(editingId, { meetingMode: 'pickup' })} />}
+              </View>
+              {editorItem.meetingMode !== 'pickup'
+                ? <>
+                  <Muted style={{ marginTop: 6 }}>📍 {editorItem.meetingPoint || 'Meet at the location shown by the host'}</Muted>
+                  {editorItem.fixed
+                    ? <Muted>Fixed meeting time · {editorItem.meetingTime || editorItem.time}</Muted>
+                    : <TimeField label="Meeting time" value={editorItem.meetingTime || editorItem.time} onChange={(t) => setField(editingId, { meetingTime: t })} />}
+                </>
+                : <>
+                  <Btn kind="ghost" title="📍 Choose my pickup location on the map" onPress={async () => {
+                    const r = await pickLocation(navigation, 'Choose your pickup location');
+                    if (r) setField(editingId, { pickupPoint: r });
+                  }} />
+                  {editorItem.pickupPoint ? <Muted>📍 {editorItem.pickupPoint.label}</Muted> : <Muted>Choose the exact pickup point.</Muted>}
+                  {editorItem.info?.pickup_times?.length
+                    ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 }}>{editorItem.info.pickup_times.map((t) => <Chip key={t} label={`🕒 ${t}`} active={editorItem.pickupTime === t} onPress={() => setField(editingId, { pickupTime: t })} />)}</View>
+                    : <TimeField label="Pickup time" value={editorItem.pickupTime} onChange={(t) => setField(editingId, { pickupTime: t })} />}
+                </>}
+            </Card>}
             {!!editorItem.options?.length && <Card style={{ marginHorizontal: 0 }}>
               <Text style={{ fontWeight: '800', marginBottom: 6 }}>{editorItem.stay ? 'Choose a room or stay option' : 'Choose the ticket or activity price'}</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>

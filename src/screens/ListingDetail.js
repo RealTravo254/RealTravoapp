@@ -143,6 +143,15 @@ export default function ListingDetail({ route, navigation }) {
               <Ionicons name="checkmark-circle" size={15} color={C.primary} /><Text style={{ marginLeft: 4 }}>{a}</Text></View>))}</View></Card>}
 
         {scheduleCard}
+        {['guide', 'activity'].includes(l.category) && (l.meeting_point || l.pickup_from_guest_location) && <Card>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Ionicons name="location" size={20} color={C.primary} />
+            <Text style={{ fontWeight: '800', marginLeft: 8 }}>Meeting and pickup</Text>
+          </View>
+          {l.meeting_point && <Text style={{ marginTop: 6 }}>Meet at: {l.meeting_point}</Text>}
+          {l.pickup_from_guest_location && <Text style={{ marginTop: 4 }}>Pickup from your location may be available.</Text>}
+          {l.meeting_point_lat != null && l.meeting_point_lng != null && <Text style={{ color: C.primary, marginTop: 4 }}>The meeting point is shown on the map below.</Text>}
+        </Card>}
         {l.pickup_times?.length > 0 && <Card><View style={{ flexDirection: 'row', alignItems: 'center' }}><Ionicons name="car" size={20} color={C.primary} /><Text style={{ fontWeight: '800', marginLeft: 8 }}>Pickup times</Text></View><Text style={{ marginTop: 4 }}>{l.pickup_times.join('  ·  ')}</Text></Card>}
         {!['tour', 'one_time'].includes(l.schedule_type) && l.category !== 'event' && <Card>
           <Text style={{ fontWeight: '800', marginBottom: 6 }}>{hoursTitle}</Text>
@@ -175,7 +184,9 @@ export default function ListingDetail({ route, navigation }) {
 
         {l.lat && <View style={{ height: 200, marginHorizontal: 12, borderRadius: 14, overflow: 'hidden', marginTop: 8 }}>
           <MapView style={{ flex: 1 }} initialRegion={{ latitude: l.lat, longitude: l.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }}>
-            <Marker coordinate={{ latitude: l.lat, longitude: l.lng }} title={l.title} /></MapView></View>}
+            <Marker coordinate={{ latitude: l.lat, longitude: l.lng }} title={l.title} />
+            {l.meeting_point_lat != null && l.meeting_point_lng != null && <Marker coordinate={{ latitude: l.meeting_point_lat, longitude: l.meeting_point_lng }} title={l.meeting_point || 'Meeting point'} pinColor="#E8890C" />}
+          </MapView></View>}
         {l.lat && <Btn kind="ghost" title="🧭 Navigate in the app" style={{ marginHorizontal: 12 }} onPress={() => navigation.navigate('TravelMap', { dest: { lat: l.lat, lng: l.lng, title: l.title } })} />}
 
         <Card>

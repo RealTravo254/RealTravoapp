@@ -70,7 +70,9 @@ export default function ListingForm({ route, navigation }) {
     amenities: old.filter((a) => AMENITIES.includes(a)), other: old.filter((a) => !AMENITIES.includes(a)).join(', '),
     photos: [...new Set(listing?.photos || [])].slice(0, MAX_PHOTOS), event_date: listing?.event_date, schedule_type: listing?.schedule_type || 'always', starts_on: listing?.starts_on || '', ends_on: listing?.ends_on || '',
     tour_time: listing?.open_time ? listing.open_time.slice(0, 5) : '08:00', one_date: listing?.event_date ? ymd(new Date(listing.event_date)) : '',
-    one_time: listing?.event_date ? `${String(new Date(listing.event_date).getHours()).padStart(2, '0')}:${String(new Date(listing.event_date).getMinutes()).padStart(2, '0')}` : '18:00', daily_limit: listing?.daily_limit ? String(listing.daily_limit) : '', pickup_times: listing?.pickup_times || [] });
+    one_time: listing?.event_date ? `${String(new Date(listing.event_date).getHours()).padStart(2, '0')}:${String(new Date(listing.event_date).getMinutes()).padStart(2, '0')}` : '18:00', daily_limit: listing?.daily_limit ? String(listing.daily_limit) : '', pickup_times: listing?.pickup_times || [],
+    meeting_point: listing?.meeting_point || '', meeting_point_lat: listing?.meeting_point_lat ?? null, meeting_point_lng: listing?.meeting_point_lng ?? null,
+    pickup_from_guest_location: !!listing?.pickup_from_guest_location });
 
   const [prices, setPrices] = useState([]); const [pricesLoaded, setPricesLoaded] = useState(!listing);
   const [newPT, setNewPT] = useState('08:00');
@@ -110,6 +112,10 @@ export default function ListingForm({ route, navigation }) {
 
   const here = async () => { const p = await getPosition(); if (p) setF((x) => ({ ...x, lat: p.lat, lng: p.lng })); };
   const onMap = async () => { const r = await pickLocation(navigation, 'Choose the place on the map', { hideSearch: true }); if (r) setF((x) => ({ ...x, lat: r.lat, lng: r.lng, location_name: r.label })); };
+  const onMeetingMap = async () => {
+    const r = await pickLocation(navigation, 'Choose the meeting or pickup point', { hideSearch: true });
+    if (r) setF((x) => ({ ...x, meeting_point: r.label, meeting_point_lat: r.lat, meeting_point_lng: r.lng }));
+  };
 
   const setDay = (d, patch) => setF((x) => ({ ...x, hours: { ...x.hours, [d]: patch } }));
   const sched = f.category === 'event' ? 'one_time' : ['activity', 'guide'].includes(f.category) ? f.schedule_type : 'always'; const showHours = !['tour', 'one_time'].includes(sched);
@@ -168,6 +174,8 @@ export default function ListingForm({ route, navigation }) {
     if (!providerId) return Alert.alert('Your provider registration must be approved first');
     if (!catOptions.includes(f.category)) return Alert.alert('Category', 'Your registration cannot list this type.');
     if (!f.title || !f.lat) return Alert.alert('Title and a map location are required');
+    if (['guide', 'activity'].includes(f.category) && (!f.meeting_point || f.meeting_point_lat == null || f.meeting_point_lng == null))
+      return Alert.alert('Meeting point', 'Choose a meeting or pickup point on the map.');
     if (!isFree && !prices.some((p) => p.kind === mainKind && Number(p.price) > 0)) return Alert.alert(MAIN_TXT[mainKind].title, `Enter the ${MAIN_TXT[mainKind].title.toLowerCase()} (more than 0)${canBeFree ? ', or switch on "Free entrance"' : ''}.`);
     if (f.accommodation_available && mainKind !== 'room' && !prices.some((p) => p.kind === 'room' && Number(p.price) > 0))
       return Alert.alert('Accommodation price', 'Add at least one room or stay price per night.');
@@ -188,7 +196,13 @@ export default function ListingForm({ route, navigation }) {
     if (sched === 'one_time') { if (!f.one_date) return Alert.alert('Date', 'Choose the date.'); const at = new Date(`${f.one_date}T${f.one_time}:00`); if (at.getTime() < Date.now()) return Alert.alert('Date', 'Choose a date and time in the future.'); eventIso = at.toISOString(); }
     const row = { provider_id: providerId, owner_id: session.user.id, city: provider?.city || listing?.city || null, category: f.category, title: f.title, description: f.description, country: f.country, region: f.region, location_name: f.location_name, lat: f.lat, lng: f.lng, google_place_id: f.google_place_id,
       opening_hours: f.hours, open_days: openDays, open_time: sched === 'tour' ? f.tour_time : first.open, close_time: first.close, entrance_fee_free: isFree, accommodation_available: f.accommodation_available, facilities: amenities, photos: f.photos, video_url: videoUrl, event_date: eventIso, schedule_type: sched, starts_on: (sched === 'range' || sched === 'tour') ? f.starts_on : null, ends_on: (sched === 'range' || sched === 'tour') ? f.ends_on : null,
-      daily_limit: f.daily_limit ? Number(f.daily_limit) : null, pickup_times: ['guide', 'activity'].includes(f.category) ? f.pickup_times : [], status: ['approved', 'hidden'].includes(listing?.status) ? listing.status : 'pending', admin_note: null };
+      daily_limit: f.daily_limit ? Number(f.daily_limit) : null,
+      pickup_times: ['guide', 'activity'].includes(f.category) ? f.pickup_times : [],
+      meeting_point: ['guide', 'activity'].includes(f.category) ? (f.meeting_point.trim() || null) : null,
+      meeting_point_lat: ['guide', 'activity'].includes(f.category) ? f.meeting_point_lat : null,
+      meeting_point_lng: ['guide', 'activity'].includes(f.category) ? f.meeting_point_lng : null,
+      pickup_from_guest_location: ['guide', 'activity'].includes(f.category) ? f.pickup_from_guest_location : false,
+      status: ['approved', 'hidden'].includes(listing?.status) ? listing.status : 'pending', admin_note: null };
     const q = listing ? supabase.from('listings').update(row).eq('id', listing.id).select().single() : supabase.from('listings').insert(row).select().single();
     const { data, error } = await q; if (error) return Alert.alert('Cannot save', error.message);
     if (listing) await supabase.from('listing_prices').delete().eq('listing_id', data.id);
@@ -313,6 +327,14 @@ export default function ListingForm({ route, navigation }) {
       <Label>Other amenities (comma separated)</Label><Input value={f.other} onChangeText={set('other')} placeholder="e.g. Rooftop bar, Bicycle hire" />
 
       {['guide', 'activity'].includes(f.category) && <>
+        <Label>Meeting or pickup point</Label>
+        <Muted>Choose one point within the selected location. Guests can meet here or request pickup from their own location if enabled below.</Muted>
+        <Btn kind="ghost" title="📍 Choose meeting/pickup point on map" onPress={onMeetingMap} />
+        {f.meeting_point ? <Muted>📍 {f.meeting_point} ({f.meeting_point_lat?.toFixed(4)}, {f.meeting_point_lng?.toFixed(4)})</Muted> : <Muted>No meeting point selected</Muted>}
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+          <Text style={{ flex: 1, fontWeight: '700' }}>Allow pickup from the guest's location</Text>
+          <Switch value={f.pickup_from_guest_location} onValueChange={set('pickup_from_guest_location')} />
+        </View>
         <Label>Fixed pickup times (optional)</Label>
         <Muted>Add two or more times if guests are picked up at set times (for example 06:00 and 09:00). Guests choose one. Leave empty to let guests choose any time.</Muted>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{f.pickup_times.map((t) => <View key={t} style={{ marginBottom: 6 }}><Chip label={`🕒 ${t}  ✕`} onPress={() => set('pickup_times')(f.pickup_times.filter((x) => x !== t))} /></View>)}</View>
