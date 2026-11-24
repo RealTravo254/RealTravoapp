@@ -11,6 +11,7 @@ import { choosePayment } from '../lib/payments';
 import { C } from '../lib/theme';
 import ListingInfoModal from '../components/ListingInfoModal';
 import { nearbyAvailableListings } from '../lib/nearbyAvailability';
+import { pickLocation } from '../lib/pickBus';
 
 // Last step (also reachable from My Trips): stopovers, stays, activities and events.
 // No pickup here: pickup, drop-off and return belong to the main booking only.
@@ -53,14 +54,25 @@ export default function AddOns({ route, navigation }) {
     const { data: prices, error: priceError } = await supabase.from('listing_prices').select('*').eq('listing_id', l.id);
     if (priceError) return Alert.alert('Could not load add-on', priceError.message);
     const req = (prices || []).filter((p) => !p.is_optional); const picked = req.length ? req : (prices || []).sort((a, b) => a.price - b.price).slice(0, 1);
-    const { data: info, error: infoError } = await supabase.from('listings').select('id,title,category,opening_hours,event_date,schedule_type,starts_on,ends_on,open_time,duration_minutes,accommodation_available').eq('id', l.id).single();
+    const { data: info, error: infoError } = await supabase.from('listings').select('id,title,category,opening_hours,event_date,schedule_type,starts_on,ends_on,open_time,duration_minutes,accommodation_available,pickup_times,meeting_point,meeting_point_lat,meeting_point_lng,pickup_from_guest_location').eq('id', l.id).single();
     if (infoError) return Alert.alert('Could not load add-on', infoError.message);
     const ev = info && (info.category === 'event' || info.schedule_type === 'one_time') && info.event_date ? new Date(info.event_date) : null;
     const taken = Object.values(chosen).map(blockOf);        // only other add-ons matter
     const slot = ev ? { date: ymd(ev), time: hhmm(ev.getHours() * 60 + ev.getMinutes()) } : (freeSlot(taken, date, date, durationOf(info || l), GAP) || { date, time: '09:00' });
     const isStay = STAY.includes(l.category) || info.accommodation_available;
     const optional = (prices || []).filter((p) => p.is_optional && (isStay ? p.kind === 'room' : ['entrance', 'ticket', 'facility', 'activity'].includes(p.kind)));
-    setChosen((c) => ({ ...c, [l.id]: { l, info, items: picked, optional, date, time: slot.time, nights: 1, fixed: !!ev } }));
+    setChosen((c) => ({
+      ...c,
+      [l.id]: {
+        l, info, items: picked, optional, date, time: slot.time, nights: 1, fixed: !!ev,
+        meetingMode: 'meet',
+        meetingPoint: info.meeting_point || l.location_name || l.region || null,
+        meetingLat: info.meeting_point_lat ?? null,
+        meetingLng: info.meeting_point_lng ?? null,
+        pickupPoint: null,
+        pickupTime: info.pickup_times?.[0] || slot.time,
+      },
+    }));
   };
   const setField = (id, patch) => setChosen((c) => ({ ...c, [id]: { ...c[id], ...patch } }));
   const togglePrice = (id, price) => setChosen((c) => {
@@ -78,6 +90,10 @@ export default function AddOns({ route, navigation }) {
   extras.forEach((c) => {
     const p = c.info ? scheduleProblem(c.info, c.date, c.time) : null; if (p) problems.push(`${c.l.title}: ${p}`);
     if (c.date !== date) problems.push(`${c.l.title}: add-ons must use the main booking date (${date}).`);
+    if (['guide', 'activity'].includes(c.l.category) && c.meetingMode === 'pickup' && !c.pickupPoint)
+      problems.push(`${c.l.title}: choose the activity pickup location.`);
+    if (['guide', 'activity'].includes(c.l.category) && c.meetingMode !== 'pickup' && !c.meetingPoint)
+      problems.push(`${c.l.title}: choose the host meeting point.`);
   });
   addonClashes(baseBlocks, extras.map(blockOf), GAP).forEach((m) => problems.push(m));
 
@@ -112,7 +128,13 @@ export default function AddOns({ route, navigation }) {
           start_time: mainTime + ':00', note: draft.note, contact_phone: contactPhone, contact_email: session.user.email || null, subtotal: draft.subtotal, discount: draft.discount, total: draft.total,
           // pickup, drop-off and return are saved on the main booking only
           trip_type: t?.tripType || null,
-          pickup_location: t?.pickup?.label || null, meeting_point: t?.pickup?.label || null, pickup_lat: t?.pickup?.lat ?? null, pickup_lng: t?.pickup?.lng ?? null, pickup_time: t ? t.pickupTime + ':00' : null,
+          pickup_location: draft.meetingMode === 'pickup' ? (draft.transfer?.pickup?.label || null) : (draft.meetingPoint || null),
+          meeting_point: draft.meetingMode === 'pickup' ? (draft.transfer?.pickup?.label || null) : (draft.meetingPoint || null),
+          pickup_lat: draft.meetingMode === 'pickup' ? (draft.transfer?.pickup?.lat ?? null) : (draft.meetingLat ?? null),
+          pickup_lng: draft.meetingMode === 'pickup' ? (draft.transfer?.pickup?.lng ?? null) : (draft.meetingLng ?? null),
+          pickup_time: draft.meetingMode === 'pickup'
+            ? (draft.transfer?.pickupTime || mainTime) + ':00'
+            : mainTime + ':00',
           return_date: t?.returnDate || null, return_time: t?.returnTime ? t.returnTime + ':00' : null }).select().single();
         if (r.error) throw r.error; mainRow = r.data;
         if (t?.dropoff) { const dr = await supabase.from('booking_dropoffs').insert({ booking_id: mainRow.id, user_id: session.user.id, dropoff_location: t.dropoff.label, dropoff_lat: t.dropoff.lat, dropoff_lng: t.dropoff.lng }); if (dr.error) throw dr.error; }
@@ -121,7 +143,13 @@ export default function AddOns({ route, navigation }) {
       for (const c of extras) {
         const total = lineTotal(c); const end = c.nights > 1 ? addDays(c.date, c.nights - 1) : c.date;
         const r = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: c.l.id, package_id: pkg.id, parent_booking_id: mainRow.id, guests, start_date: c.date, end_date: end, nights: c.nights,
-          start_time: c.time + ':00', contact_phone: contactPhone, contact_email: session.user.email || null, subtotal: total, total }).select().single();        // no pickup fields on add-ons
+          start_time: c.meetingMode === 'pickup' ? (c.pickupTime || c.time) + ':00' : c.time + ':00',
+          pickup_location: c.meetingMode === 'pickup' ? c.pickupPoint?.label || null : c.meetingPoint,
+          pickup_lat: c.meetingMode === 'pickup' ? c.pickupPoint?.lat ?? null : c.meetingLat,
+          pickup_lng: c.meetingMode === 'pickup' ? c.pickupPoint?.lng ?? null : c.meetingLng,
+          pickup_time: c.meetingMode === 'pickup' ? (c.pickupTime || c.time) + ':00' : c.time + ':00',
+          meeting_point: c.meetingMode === 'pickup' ? c.pickupPoint?.label || null : c.meetingPoint,
+          contact_phone: contactPhone, contact_email: session.user.email || null, subtotal: total, total }).select().single();
         if (r.error) throw r.error;
         await supabase.from('booking_items').insert(c.items.map((p) => ({ booking_id: r.data.id, price_id: p.id, label: p.label, quantity: guests, unit_price: p.price,
           amount: Number(p.price) * (p.unit === 'per_group' ? 1 : guests) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1) })));
@@ -153,6 +181,27 @@ export default function AddOns({ route, navigation }) {
                 {c.fixed ? <Text style={{ fontWeight: '700' }}>🕒 {c.time}</Text> : <TimeField value={c.time} onChange={(x) => setField(l.id, { time: x })} />}
               </View>
               {(STAY.includes(l.category) || c.info?.accommodation_available) && <Stepper label="Nights" value={c.nights} onChange={(n) => setField(l.id, { nights: n })} min={1} max={30} />}
+              {['guide', 'activity'].includes(l.category) && (
+                <View style={{ marginTop: 8 }}>
+                  <Muted>Meeting point and time</Muted>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                    <Chip label="Meet at host point" active={c.meetingMode !== 'pickup'} onPress={() => setField(l.id, { meetingMode: 'meet' })} />
+                    {c.info?.pickup_from_guest_location && <Chip label="Pickup from my location" active={c.meetingMode === 'pickup'} onPress={() => setField(l.id, { meetingMode: 'pickup' })} />}
+                  </View>
+                  {c.meetingMode === 'pickup'
+                    ? <>
+                        <Btn kind="ghost" title="📍 Choose pickup location" onPress={async () => {
+                          const r = await pickLocation(navigation, 'Choose your activity pickup location');
+                          if (r) setField(l.id, { pickupPoint: r });
+                        }} />
+                        {c.pickupPoint ? <Muted>📍 {c.pickupPoint.label}</Muted> : <Muted>Choose the exact pickup location.</Muted>}
+                        {c.info?.pickup_times?.length
+                          ? <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{c.info.pickup_times.map((t) => <Chip key={t} label={`🕒 ${t}`} active={c.pickupTime === t} onPress={() => setField(l.id, { pickupTime: t })} />)}</View>
+                          : <TimeField value={c.pickupTime} onChange={(t) => setField(l.id, { pickupTime: t })} />}
+                      </>
+                    : <Muted>📍 {c.meetingPoint || 'Host meeting point'} · 🕒 {c.fixed ? c.time : c.time}</Muted>}
+                </View>
+              )}
               {!!c.optional.length && <View style={{ marginTop: 6 }}>
                 <Muted>Optional rooms, facilities and activities</Muted>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{c.optional.map((p) => <Chip key={p.id} label={`${c.items.some((item) => item.id === p.id) ? '✓ ' : '+ '}${p.label} · ${formatMoney(p.price)}`} active={c.items.some((item) => item.id === p.id)} onPress={() => togglePrice(l.id, p)} />)}</View>

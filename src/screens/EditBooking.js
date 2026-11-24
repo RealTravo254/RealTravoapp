@@ -31,6 +31,7 @@ export default function EditBooking({ route, navigation }) {
   const [start, setStart] = useState(new Date()); const [time, setTime] = useState('10:00'); const [note, setNote] = useState(''); const [busy, setBusy] = useState(false);
   // new pickup (only when the booking has none yet)
   const [addPickup, setAddPickup] = useState(false); const [pickup, setPickup] = useState(null); const [pickupTime, setPickupTime] = useState('08:00');
+  const [meetingMode, setMeetingMode] = useState('meet');
   const [vehicles, setVehicles] = useState([]); const [vid, setVid] = useState(null); const [km, setKm] = useState(null);
   // new add-ons
   const [group, setGroup] = useState('all'); const [near, setNear] = useState(null); const [chosen, setChosen] = useState({});
@@ -91,6 +92,8 @@ export default function EditBooking({ route, navigation }) {
     if (pickupTime >= time) problems.push('Pickup must be before the booking start time.');
     if (new Date(`${startDay}T${pickupTime}:00`).getTime() < Date.now() + 3600000) problems.push('Pickup must be at least 1 hour from now.');
   }
+  if (['guide', 'activity'].includes(l.category) && meetingMode === 'pickup' && !l.pickup_from_guest_location)
+    problems.push('Guest pickup is not available for this activity.');
   extras.forEach((c) => {
     const p = c.info ? scheduleProblem(c.info, c.date, c.time) : null; if (p) problems.push(`${c.l.title}: ${p}`);
     if (c.date < startDay || c.date > endDay) problems.push(`${c.l.title}: choose a date between ${startDay} and ${endDay}.`);
@@ -149,6 +152,13 @@ export default function EditBooking({ route, navigation }) {
       const patch = { guests, start_date: startDay, end_date: endDay, nights: days, note: note || null, package_id: pkgId || null,
         subtotal: calc.subtotal, discount: calc.discount, total: calc.total };
       if (addPickup) Object.assign(patch, { trip_type: 'oneway', pickup_location: pickup.label, meeting_point: pickup.label, pickup_lat: pickup.lat, pickup_lng: pickup.lng, pickup_time: pickupTime + ':00' });
+      if (['guide', 'activity'].includes(l.category) && meetingMode === 'meet') Object.assign(patch, {
+        pickup_location: l.meeting_point || null,
+        meeting_point: l.meeting_point || null,
+        pickup_lat: l.meeting_point_lat ?? null,
+        pickup_lng: l.meeting_point_lng ?? null,
+        pickup_time: time + ':00',
+      });
       const up = await supabase.from('bookings').update(patch).eq('id', id).eq('payment_status', 'unpaid').select().single(); if (up.error) throw up.error;
       const del = await supabase.from('booking_items').delete().eq('booking_id', id); if (del.error) throw del.error;
       const rows = formItem ? [{ booking_id: id, label: formItem.label, quantity: guests, unit_price: formItem.unit_price, amount: calc.total }] : calc.items.map((i) => ({ ...i, booking_id: id }));
@@ -194,6 +204,14 @@ export default function EditBooking({ route, navigation }) {
               <Text style={{ fontSize: 22, marginRight: 8 }}>{addPickup ? '☑️' : '⬜'}</Text><View style={{ flex: 1 }}><Text style={{ fontWeight: '800' }}>🚐 Add a pickup</Text><Muted>For the main booking only, not for add-ons.</Muted></View>
             </TouchableOpacity>
             {addPickup && <>
+              {['guide', 'activity'].includes(l.category) && <Card style={{ marginHorizontal: 0 }}>
+                <Text style={{ fontWeight: '800' }}>Join by</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                  <Chip label="Meet at host point" active={meetingMode === 'meet'} onPress={() => setMeetingMode('meet')} />
+                  {l.pickup_from_guest_location && <Chip label="Pickup from my location" active={meetingMode === 'pickup'} onPress={() => setMeetingMode('pickup')} />}
+                </View>
+                {meetingMode === 'meet' && <Muted>📍 {l.meeting_point || 'Host meeting point'} · 🕒 {time}</Muted>}
+              </Card>}
               <View style={{ flexDirection: 'row' }}>
                 <Btn style={{ flex: 1, marginRight: 4 }} kind="ghost" title="📍 My location" onPress={mine} />
                 <Btn style={{ flex: 1, marginLeft: 4 }} kind="ghost" title="🗺️ Search / map" onPress={onMap} />

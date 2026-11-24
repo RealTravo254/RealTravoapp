@@ -52,6 +52,7 @@ export default function BookingFormScreen({ route, navigation }) {
   const [returnDate, setReturnDate] = useState(null); const [returnTime, setReturnTime] = useState('17:00');
   const [vehicles, setVehicles] = useState([]); const [vid, setVid] = useState(null);
   const [km, setKm] = useState(null); const [kmDrop, setKmDrop] = useState(null);
+  const [meetingMode, setMeetingMode] = useState('meet');
 
   // add-ons from other categories
   const [group, setGroup] = useState('all'); const [near, setNear] = useState(null); const [chosen, setChosen] = useState({});
@@ -115,6 +116,10 @@ export default function BookingFormScreen({ route, navigation }) {
     if (l.pickup_times?.length && !l.pickup_times.includes(pickupTime)) problems.push('Choose one of the host pickup times.');
     else if (new Date(`${startDay}T${pickupTime}:00`).getTime() < Date.now() + 3600000) problems.push('Pickup must be at least 1 hour from now.');
   }
+  if (['guide', 'activity'].includes(l.category) && !l.meeting_point) problems.push('This activity has no host meeting point.');
+  if (meetingMode === 'pickup' && !l.pickup_from_guest_location) problems.push('Guest pickup is not available for this activity.');
+  if (meetingMode === 'pickup' && !pickupLoc) problems.push('Choose your activity pickup location.');
+  if (meetingMode === 'pickup' && !pickupTime) problems.push('Choose your activity pickup time.');
   const t = transfer ? { pickupTime, returnDate: isReturn ? ymd(retDate) : null, returnTime: isReturn ? returnTime : null } : null;
   const mb = mainBlocks(l, startDay, startDay, time, t);
   mb.problems.forEach((m) => problems.push(m));
@@ -133,7 +138,7 @@ export default function BookingFormScreen({ route, navigation }) {
     const { data: prices, error: priceError } = await supabase.from('listing_prices').select('*').eq('listing_id', x.id);
     if (priceError) return Alert.alert('Could not load add-on', priceError.message);
     const req = (prices || []).filter((p) => !p.is_optional); const picked = req.length ? req : (prices || []).sort((a, b) => a.price - b.price).slice(0, 1);
-    const { data: info, error: infoError } = await supabase.from('listings').select('id,title,category,opening_hours,event_date,schedule_type,starts_on,ends_on,open_time,duration_minutes,accommodation_available').eq('id', x.id).single();
+    const { data: info, error: infoError } = await supabase.from('listings').select('id,title,category,opening_hours,event_date,schedule_type,starts_on,ends_on,open_time,duration_minutes,accommodation_available,pickup_times,meeting_point,meeting_point_lat,meeting_point_lng,pickup_from_guest_location').eq('id', x.id).single();
     if (infoError) return Alert.alert('Could not load add-on', infoError.message);
     const ev = info && (info.category === 'event' || info.schedule_type === 'one_time') && info.event_date ? new Date(info.event_date) : null;
     const taken = Object.values(chosen).map(blockOf);                                 // only other add-ons matter
@@ -179,8 +184,11 @@ export default function BookingFormScreen({ route, navigation }) {
         guests, start_date: startDay, end_date: startDay, nights: 1, start_time: time + ':00', note: note || null,
         contact_phone: contactPhone,
         trip_type: transfer ? tripType : null,
-        pickup_location: transfer ? pickupLoc.label : null, meeting_point: transfer ? pickupLoc.label : null, pickup_lat: transfer ? pickupLoc.lat : null, pickup_lng: transfer ? pickupLoc.lng : null,
-        pickup_time: transfer ? pickupTime + ':00' : null,
+          pickup_location: meetingMode === 'pickup' ? pickupLoc?.label : (l.meeting_point || null),
+          meeting_point: meetingMode === 'pickup' ? pickupLoc?.label : (l.meeting_point || null),
+          pickup_lat: meetingMode === 'pickup' ? pickupLoc?.lat : (l.meeting_point_lat ?? null),
+          pickup_lng: meetingMode === 'pickup' ? pickupLoc?.lng : (l.meeting_point_lng ?? null),
+          pickup_time: meetingMode === 'pickup' ? pickupTime + ':00' : time + ':00',
         return_date: isReturn ? ymd(retDate) : null, return_time: isReturn ? returnTime + ':00' : null,
         subtotal: mainTotal, total: mainTotal }).select().single();
       if (error) throw error;
@@ -190,7 +198,14 @@ export default function BookingFormScreen({ route, navigation }) {
       for (const c of extras) {                                                        // add-ons: no pickup fields
         const total = lineTotal(c); const end = c.nights > 1 ? addDays(c.date, c.nights - 1) : c.date;
         const r = await supabase.from('bookings').insert({ user_id: session.user.id, listing_id: c.l.id, package_id: pkg.id, parent_booking_id: b.id, guests,
-          start_date: c.date, end_date: end, nights: c.nights, start_time: c.time + ':00', contact_phone: contactPhone, subtotal: total, total }).select().single();
+          start_date: c.date, end_date: end, nights: c.nights,
+          start_time: c.meetingMode === 'pickup' ? (c.pickupTime || c.time) + ':00' : c.time + ':00',
+          pickup_location: c.meetingMode === 'pickup' ? c.pickupPoint?.label : (c.meetingPoint || null),
+          pickup_lat: c.meetingMode === 'pickup' ? c.pickupPoint?.lat : (c.meetingLat ?? null),
+          pickup_lng: c.meetingMode === 'pickup' ? c.pickupPoint?.lng : (c.meetingLng ?? null),
+          pickup_time: c.meetingMode === 'pickup' ? (c.pickupTime || c.time) + ':00' : c.time + ':00',
+          meeting_point: c.meetingMode === 'pickup' ? c.pickupPoint?.label : (c.meetingPoint || null),
+          contact_phone: contactPhone, subtotal: total, total }).select().single();
         if (r.error) throw r.error;
         await supabase.from('booking_items').insert(c.items.map((p) => ({ booking_id: r.data.id, price_id: p.id, label: p.label, quantity: guests, unit_price: p.price,
           amount: Number(p.price) * (p.unit === 'per_group' ? 1 : guests) * (['per_night', 'per_day'].includes(p.unit) ? c.nights : 1) })));
@@ -225,6 +240,26 @@ export default function BookingFormScreen({ route, navigation }) {
       </View>
       <Stepper label="Guests" value={guests} onChange={setGuests} min={1} max={50} />
       <Label>Contact phone number</Label><PhoneField country={profile?.country || ''} value={contactPhone} onChange={setContactPhone} />
+
+      {['guide', 'activity'].includes(l.category) && (
+        <Card style={{ marginHorizontal: 0, marginTop: 10 }}>
+          <Text style={{ fontWeight: '800' }}>Meeting point and time</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 }}>
+            <Chip label="Meet at host point" active={meetingMode !== 'pickup'} onPress={() => setMeetingMode('meet')} />
+            {l.pickup_from_guest_location && <Chip label="Pickup from my location" active={meetingMode === 'pickup'} onPress={() => setMeetingMode('pickup')} />}
+          </View>
+          {meetingMode === 'pickup'
+            ? <>
+                <Label>Your pickup location</Label>
+                <LocBtns set={setPickupLoc} title="Choose your activity pickup location" loc={pickupLoc} />
+                <PickupTimeField times={l.pickup_times} value={pickupTime} onChange={setPickupTime} />
+              </>
+            : <>
+                <Muted style={{ marginTop: 8 }}>📍 {l.meeting_point || 'Host meeting point'}</Muted>
+                <Muted>🕒 {time}</Muted>
+              </>}
+        </Card>
+      )}
 
       {needsMeeting && (
         <Card style={{ marginHorizontal: 0, marginTop: 10 }}>

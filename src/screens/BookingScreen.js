@@ -93,6 +93,7 @@ export default function BookingScreen({ route, navigation }) {
   const [returnDate, setReturnDate] = useState(null); const [returnTime, setReturnTime] = useState('17:00');
   const [vehicles, setVehicles] = useState([]); const [vid, setVid] = useState(null);
   const [km, setKm] = useState(null); const [kmDrop, setKmDrop] = useState(null);
+  const [meetingMode, setMeetingMode] = useState('meet');
 
   const offer = bestOffer(offers, start);
   const calc = useMemo(() => computeTotal(sel, prices, days, offer), [sel, days, start]);
@@ -135,6 +136,12 @@ export default function BookingScreen({ route, navigation }) {
     if (v && pickupLoc && km == null) problems.push('Calculating the pickup distance, please wait.');
     if (pickupTime && new Date(`${startDay}T${pickupTime}:00`).getTime() < Date.now() + 3600000) problems.push('Pickup must be at least 1 hour from now.');
   }
+  if (['guide', 'activity'].includes(listing.category)) {
+    if (meetingMode === 'pickup' && !listing.pickup_from_guest_location) problems.push('Guest pickup is not available for this activity.');
+    if (meetingMode === 'pickup' && !pickupLoc) problems.push('Choose your activity pickup location.');
+    if (meetingMode === 'pickup' && !pickupTime) problems.push('Choose your activity pickup time.');
+    if (meetingMode === 'meet' && (!listing.meeting_point || listing.meeting_point_lat == null)) problems.push('This activity has no host meeting point.');
+  }
   const tdraft = transfer && pickupTime ? { pickupTime, returnDate: isReturn ? ymd(retDate) : null, returnTime: isReturn ? returnTime : null } : null;
   const mb = mainBlocks(listing, startDay, endDay, time, tdraft);
   mb.problems.forEach((m) => problems.push(m));
@@ -146,9 +153,14 @@ export default function BookingScreen({ route, navigation }) {
     if (!calc.items.length && !listing.entrance_fee_free) return Alert.alert('Select at least one item (activities can be skipped, but pick entrance / room / ticket)');
     navigation.navigate('AddOns', { listing, draft: {
       guests, start: startDay, end: endDay, days, time, urgent: urgent || startsSoon(startDay, time), note, contactPhone,
+      meetingMode: ['guide', 'activity'].includes(listing.category) ? meetingMode : null,
+      meetingPoint: ['guide', 'activity'].includes(listing.category) ? listing.meeting_point : null,
+      meetingLat: ['guide', 'activity'].includes(listing.category) ? listing.meeting_point_lat : null,
+      meetingLng: ['guide', 'activity'].includes(listing.category) ? listing.meeting_point_lng : null,
       transfer: transfer ? { tripType, pickup: pickupLoc, pickupTime, dropoff: isReturn ? (sameDrop ? pickupLoc : dropLoc) : null,
         returnDate: isReturn ? ymd(retDate) : null, returnTime: isReturn ? returnTime : null,
-        vehicle: v ? { id: v.id } : null, km, kmDrop: isReturn ? (sameDrop ? km : kmDrop) : null, price: tprice } : null,
+        vehicle: v ? { id: v.id } : null, km, kmDrop: isReturn ? (sameDrop ? km : kmDrop) : null, price: tprice,
+        meetingMode, meetingPoint: listing.meeting_point, meetingLat: listing.meeting_point_lat, meetingLng: listing.meeting_point_lng } : null,
       items: calc.items, subtotal: calc.subtotal, discount: calc.discount, total: calc.total, useBalance } });
   };
 
@@ -274,6 +286,17 @@ export default function BookingScreen({ route, navigation }) {
           </Section>
 
           {/* ---------- Pickup and return (last section, unticked and closed until the guest ticks it) ---------- */}
+          {['guide', 'activity'].includes(listing.category) && (
+            <Section icon="location-outline" title="Meeting point" hint="Choose how you will join this activity">
+              <Seg value={meetingMode} onChange={setMeetingMode} options={[
+                ['meet', 'Meet at host point'],
+                ...(listing.pickup_from_guest_location ? [['pickup', 'Pickup from my location']] : []),
+              ]} />
+              {meetingMode === 'meet'
+                ? <><Row label="Host meeting point"><Muted>{listing.meeting_point || 'The host has not added a meeting point.'}</Muted></Row><Text style={s.sectionHint}>Meeting time: {time}</Text></>
+                : <><Row label="Your pickup location"><LocBtns set={setPickupLoc} title="Choose your activity pickup location" loc={pickupLoc} /></Row><Row label="Pickup time"><PickupTimeField times={listing.pickup_times} value={pickupTime || listing.pickup_times?.[0] || '08:00'} onChange={setPickupTime} /></Row></>}
+            </Section>
+          )}
           {needsMeeting && (
             <Section
               icon="car-outline"
