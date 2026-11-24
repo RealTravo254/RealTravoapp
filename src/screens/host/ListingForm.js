@@ -30,11 +30,10 @@ const uniqById = (arr) => { const seen = new Set(); return (arr || []).filter((r
 const CAT_OPTS = {
   hotel: ['hotel', 'resort', 'event'],
   campsite: ['campsite', 'event'],
-  attraction: ['attraction', 'event'],
   activity: ['airbnb', 'activity', 'guide', 'event'],
 };
-const CAT_LABEL = { hotel: 'Hotel', resort: 'Resort', campsite: 'Campsite', attraction: 'Attraction', airbnb: 'Airbnb', activity: 'Activity', event: 'Event', guide: 'Guided tour / guide' };
-const PROV_LABEL = { hotel: 'Hotel / Resort', campsite: 'Campsite', attraction: 'Attraction', activity: 'Company / business' };
+const CAT_LABEL = { hotel: 'Hotel', resort: 'Resort', campsite: 'Campsite', airbnb: 'Airbnb', activity: 'Activity', event: 'Event', guide: 'Guided tour / guide' };
+const PROV_LABEL = { hotel: 'Hotel / Resort', campsite: 'Campsite', activity: 'Company / business' };
 
 // The "main" price each category must have
 const MAIN = { hotel: 'room', resort: 'room', campsite: 'room', airbnb: 'room', guide: 'guide' }; // everything else = entrance
@@ -210,7 +209,6 @@ export default function ListingForm({ route, navigation }) {
   const providerNote = !provider ? null
     : provider.category === 'hotel' ? 'Hotel / resort hosts can list multiple hotels, resorts, and events.'
     : provider.category === 'campsite' ? 'Campsite hosts can list multiple campsites and events.'
-    : provider.category === 'attraction' ? 'Attraction hosts can list multiple attractions and events.'
     : 'Company: list multiple Airbnbs, activities, guided tours, trips, and events.';
 
   const renderMainRow = (p, i, count) => (

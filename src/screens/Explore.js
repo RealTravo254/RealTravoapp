@@ -16,24 +16,6 @@ import { C } from '../lib/theme';
 
 const RECENT = 'recent_searches';
 
-// Big service card used for Airport transfer and Custom trip
-const ServiceCard = ({ icon, title, sub, color, onPress, style }) => (
-  <TouchableOpacity activeOpacity={0.85} onPress={onPress}
-    style={[{ flex: 1, backgroundColor: color, borderRadius: 20, padding: 14, minHeight: 104, overflow: 'hidden',
-      shadowColor: '#10222E', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 }, style]}>
-    {/* soft decorative circle */}
-    <View style={{ position: 'absolute', right: -22, top: -22, width: 90, height: 90, borderRadius: 45, backgroundColor: 'rgba(255,255,255,0.14)' }} />
-    <View style={{ width: 40, height: 40, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
-      <Ionicons name={icon} size={22} color="#fff" />
-    </View>
-    <Text numberOfLines={1} style={{ color: '#fff', fontSize: 15, fontWeight: '800', marginTop: 10 }}>{title}</Text>
-    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-      <Text numberOfLines={1} style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>{sub}</Text>
-      <Ionicons name="arrow-forward-circle" size={22} color="#fff" />
-    </View>
-  </TouchableOpacity>
-);
-
 export default function Explore({ navigation, route, onInitialLoadComplete }) {
   const { ensureLogin, profile } = useAuth();
   const [text, setText] = useState(''); const [q, setQ] = useState(''); const [cat, setCat] = useState(null);
@@ -219,20 +201,26 @@ export default function Explore({ navigation, route, onInitialLoadComplete }) {
         {q ? <TouchableOpacity onPress={() => { setText(''); setQ(''); }}><Ionicons name="close-circle" size={20} color={C.muted} /></TouchableOpacity> : null}
       </TouchableOpacity>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 8, paddingTop: 10 }}>
-        {[{ key: null, icon: 'apps-outline' }, ...CATS].map((c) => {
-          const on = cat === c.key; const col = c.color || C.primary;
+        {[
+          { key: 'airport-transfer', icon: 'car-outline', color: '#0B4F6C', label: tr('transfer') },
+          { key: null, icon: 'apps-outline', color: C.primary, label: 'All' },
+          ...CATS.map((c) => ({ ...c, label: tr(c.key) })),
+          { key: 'custom-trip', icon: 'map-outline', color: '#E8890C', label: tr('custom') },
+        ].map((c) => {
+          const on = cat === c.key; const col = c.color;
+          const press = c.key === 'airport-transfer'
+            ? () => go('AirportTransfer')
+            : c.key === 'custom-trip'
+              ? () => go('CustomTrip')
+              : () => setCat(c.key);
           return (
-            <TouchableOpacity key={String(c.key)} onPress={() => setCat(c.key)} style={{ width: '25%', alignItems: 'center', paddingVertical: 8 }}>
+            <TouchableOpacity key={String(c.key)} onPress={press} style={{ width: '25%', alignItems: 'center', paddingVertical: 8 }}>
               <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: on ? col : col + '22', alignItems: 'center', justifyContent: 'center', borderWidth: on ? 0 : 1, borderColor: col + '55' }}>
                 <Ionicons name={c.icon} size={26} color={on ? '#fff' : col} />
               </View>
-              <Text numberOfLines={1} style={{ marginTop: 4, fontSize: 12, fontWeight: '800', color: col }}>{c.key ? tr(c.key) : 'All'}</Text>
+              <Text numberOfLines={1} style={{ marginTop: 4, fontSize: 12, fontWeight: '800', color: col }}>{c.label}</Text>
             </TouchableOpacity>);
         })}
-      </View>
-      <View style={{ flexDirection: 'row', paddingHorizontal: 12, marginTop: 4 }}>
-        <ServiceCard style={{ marginRight: 6 }} color="#0B4F6C" icon="car-sport" title={tr('transfer')} sub="Airport pickup & drop-off" onPress={() => go('AirportTransfer')} />
-        <ServiceCard style={{ marginLeft: 6 }} color="#E8890C" icon="map" title={tr('custom')} sub="Build your own trip" onPress={() => go('CustomTrip')} />
       </View>
       {rails()}
       <Text style={{ fontSize: 18, fontWeight: '800', margin: 12, marginBottom: 0, color: C.text }}>{q ? `Results for “${q}”` : cat ? tr(cat) : 'All places'}</Text>

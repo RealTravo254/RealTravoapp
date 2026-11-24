@@ -1,7 +1,6 @@
 export const CATS = [
   { key: 'hotel', icon: 'bed-outline', color: '#2F6FDE' },
   { key: 'campsite', icon: 'bonfire-outline', color: '#2E9E5B' },
-  { key: 'attraction', icon: 'ticket-outline', color: '#E8890C' },
   { key: 'airbnb', icon: 'home-outline', color: '#E0455C' },
   { key: 'activity', icon: 'bicycle-outline', color: '#8E44AD' },
   { key: 'guide', icon: 'compass-outline', color: '#0E9AA7' },

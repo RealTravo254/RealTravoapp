@@ -19,8 +19,6 @@ import PhoneField from '../../components/PhoneField';
 const TYPES = [
   { key: 'hotel', label: 'Hotel / restaurant', docs: 'full', multi: false, events: true,
     help: 'You can list multiple hotels or resorts and host events. TRA and a business registration document are required.' },
-  { key: 'attraction', label: 'Attraction', docs: 'full', multi: false, events: true,
-    help: 'You can list multiple attractions and host events. TRA and a business registration document are required.' },
   { key: 'activity', label: 'Trips, events, tours & activities', docs: 'reg', multi: false, events: true,
     help: 'Verified once as a company or business. You can then list many trips, events, guided tours and activities. A business registration number and document are required.' },
   { key: 'campsite', label: 'Campsite', docs: 'full', multi: false, events: true,
