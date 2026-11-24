@@ -16,6 +16,15 @@ import { C } from '../lib/theme';
 
 const RECENT = 'recent_searches';
 
+const ServiceIcon = ({ icon, title, color, onPress }) => (
+  <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={{ width: '25%', alignItems: 'center', paddingVertical: 8 }}>
+    <View style={{ width: 54, height: 54, borderRadius: 16, backgroundColor: color, alignItems: 'center', justifyContent: 'center', shadowColor: '#10222E', shadowOpacity: 0.16, shadowRadius: 5, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
+      <Ionicons name={icon} size={25} color="#fff" />
+    </View>
+    <Text numberOfLines={1} style={{ marginTop: 4, fontSize: 11, fontWeight: '800', color, textAlign: 'center' }}>{title}</Text>
+  </TouchableOpacity>
+);
+
 export default function Explore({ navigation, route, onInitialLoadComplete }) {
   const { ensureLogin, profile } = useAuth();
   const [text, setText] = useState(''); const [q, setQ] = useState(''); const [cat, setCat] = useState(null);
@@ -201,26 +210,29 @@ export default function Explore({ navigation, route, onInitialLoadComplete }) {
         {q ? <TouchableOpacity onPress={() => { setText(''); setQ(''); }}><Ionicons name="close-circle" size={20} color={C.muted} /></TouchableOpacity> : null}
       </TouchableOpacity>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 8, paddingTop: 10 }}>
-        {[
-          { key: 'airport-transfer', icon: 'car-outline', color: '#0B4F6C', label: tr('transfer') },
-          { key: null, icon: 'apps-outline', color: C.primary, label: 'All' },
-          ...CATS.map((c) => ({ ...c, label: tr(c.key) })),
-          { key: 'custom-trip', icon: 'map-outline', color: '#E8890C', label: tr('custom') },
-        ].map((c) => {
+        {CATS.slice(0, 4).map((c) => {
           const on = cat === c.key; const col = c.color;
-          const press = c.key === 'airport-transfer'
-            ? () => go('AirportTransfer')
-            : c.key === 'custom-trip'
-              ? () => go('CustomTrip')
-              : () => setCat(c.key);
           return (
-            <TouchableOpacity key={String(c.key)} onPress={press} style={{ width: '25%', alignItems: 'center', paddingVertical: 8 }}>
+            <TouchableOpacity key={c.key} onPress={() => setCat(c.key)} style={{ width: '25%', alignItems: 'center', paddingVertical: 8 }}>
               <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: on ? col : col + '22', alignItems: 'center', justifyContent: 'center', borderWidth: on ? 0 : 1, borderColor: col + '55' }}>
                 <Ionicons name={c.icon} size={26} color={on ? '#fff' : col} />
               </View>
-              <Text numberOfLines={1} style={{ marginTop: 4, fontSize: 12, fontWeight: '800', color: col }}>{c.label}</Text>
+              <Text numberOfLines={1} style={{ marginTop: 4, fontSize: 12, fontWeight: '800', color: col }}>{tr(c.key)}</Text>
             </TouchableOpacity>);
         })}
+        <ServiceIcon icon="car-outline" title={tr('transfer')} color="#0B4F6C" onPress={() => go('AirportTransfer')} />
+        {CATS.slice(4).map((c) => {
+          const on = cat === c.key; const col = c.color;
+          return (
+            <TouchableOpacity key={c.key} onPress={() => setCat(c.key)} style={{ width: '25%', alignItems: 'center', paddingVertical: 8 }}>
+              <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: on ? col : col + '22', alignItems: 'center', justifyContent: 'center', borderWidth: on ? 0 : 1, borderColor: col + '55' }}>
+                <Ionicons name={c.icon} size={26} color={on ? '#fff' : col} />
+              </View>
+              <Text numberOfLines={1} style={{ marginTop: 4, fontSize: 12, fontWeight: '800', color: col }}>{tr(c.key)}</Text>
+            </TouchableOpacity>);
+        })}
+        <View style={{ width: '25%' }} />
+        <ServiceIcon icon="map-outline" title={tr('custom')} color="#E8890C" onPress={() => go('CustomTrip')} />
       </View>
       {rails()}
       <Text style={{ fontSize: 18, fontWeight: '800', margin: 12, marginBottom: 0, color: C.text }}>{q ? `Results for “${q}”` : cat ? tr(cat) : 'All places'}</Text>
